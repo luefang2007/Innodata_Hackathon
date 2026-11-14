@@ -1,0 +1,267 @@
+{
+ "span": 3,
+ "requested": 5,
+ "valid": 5,
+ "atoms": [
+  "pallets__click-0101-group-subcommand-lifecycle-hooks",
+  "pallets__click-0102-help-effective-value-origin",
+  "pallets__click-0103-line-completion-protocol",
+  "pallets__click-0104-option-shorthand-expansions",
+  "pallets__click-0105-numbered-choice-prompts"
+ ],
+ "wall_seconds": 214.4,
+ "candidates": [
+  {
+   "atoms": [
+    "pallets__click-0101-group-subcommand-lifecycle-hooks",
+    "pallets__click-0102-help-effective-value-origin",
+    "pallets__click-0104-option-shorthand-expansions"
+   ],
+   "integration": 3,
+   "gates": {
+    "ok": true,
+    "gates": {
+     "hygiene": true,
+     "grounding": true,
+     "gold_tests": true,
+     "feature_absent": true,
+     "regression": true,
+     "mutation": true,
+     "fairness": true,
+     "novelty": true
+    },
+    "n_f2p": 56,
+    "n_p2p": 160,
+    "mutation": {
+     "n": 12,
+     "killed": 12,
+     "kill_rate": 1.0,
+     "survivors": []
+    },
+    "warnings": []
+   },
+   "check_seconds": 36.3,
+   "status": "valid",
+   "instance_id": "pallets__click-0201-combo-lifecycle-hooks-value-origin-shorthand-expansions",
+   "n_f2p": 56,
+   "n_p2p": 160,
+   "mutation": {
+    "n": 12,
+    "killed": 12,
+    "kill_rate": 1.0,
+    "survivors": []
+   },
+   "wall_seconds": 36.4
+  },
+  {
+   "atoms": [
+    "pallets__click-0101-group-subcommand-lifecycle-hooks",
+    "pallets__click-0102-help-effective-value-origin",
+    "pallets__click-0105-numbered-choice-prompts"
+   ],
+   "integration": 3,
+   "status": "incompatible",
+   "error": "golds do not combine at pallets__click-0105-numbered-choice-prompts: error: patch failed: src/click/core.py:2999\nerror: src/click/core.py: patch does not apply"
+  },
+  {
+   "atoms": [
+    "pallets__click-0101-group-subcommand-lifecycle-hooks",
+    "pallets__click-0104-option-shorthand-expansions",
+    "pallets__click-0105-numbered-choice-prompts"
+   ],
+   "integration": 3,
+   "gates": {
+    "ok": true,
+    "gates": {
+     "hygiene": true,
+     "grounding": true,
+     "gold_tests": true,
+     "feature_absent": true,
+     "regression": true,
+     "mutation": true,
+     "fairness": true,
+     "novelty": true
+    },
+    "n_f2p": 58,
+    "n_p2p": 160,
+    "mutation": {
+     "n": 12,
+     "killed": 11,
+     "kill_rate": 0.917,
+     "survivors": [
+      "src/click/termui.py:149: `return index` -> `return None`"
+     ]
+    },
+    "warnings": []
+   },
+   "check_seconds": 47.2,
+   "status": "valid",
+   "instance_id": "pallets__click-0202-combo-lifecycle-hooks-shorthand-expansions-choice-prompts",
+   "n_f2p": 58,
+   "n_p2p": 160,
+   "mutation": {
+    "n": 12,
+    "killed": 11,
+    "kill_rate": 0.917,
+    "survivors": [
+     "src/click/termui.py:149: `return index` -> `return None`"
+    ]
+   },
+   "wall_seconds": 47.3
+  },
+  {
+   "atoms": [
+    "pallets__click-0102-help-effective-value-origin",
+    "pallets__click-0104-option-shorthand-expansions",
+    "pallets__click-0105-numbered-choice-prompts"
+   ],
+   "integration": 3,
+   "status": "incompatible",
+   "error": "golds do not combine at pallets__click-0105-numbered-choice-prompts: error: patch failed: src/click/core.py:2999\nerror: src/click/core.py: patch does not apply"
+  },
+  {
+   "atoms": [
+    "pallets__click-0101-group-subcommand-lifecycle-hooks",
+    "pallets__click-0102-help-effective-value-origin",
+    "pallets__click-0103-line-completion-protocol"
+   ],
+   "integration": 1,
+   "gates": {
+    "ok": true,
+    "gates": {
+     "hygiene": true,
+     "grounding": true,
+     "gold_tests": true,
+     "feature_absent": true,
+     "regression": true,
+     "mutation": true,
+     "fairness": true,
+     "novelty": true
+    },
+    "n_f2p": 67,
+    "n_p2p": 160,
+    "mutation": {
+     "n": 12,
+     "killed": 11,
+     "kill_rate": 0.917,
+     "survivors": [
+      "src/click/core.py:339: `show_effective: bool | None` -> `pass`"
+     ]
+    },
+    "warnings": [
+     "1 new tests pass at base and are not graded"
+    ]
+   },
+   "check_seconds": 40.6,
+   "status": "valid",
+   "instance_id": "pallets__click-0203-combo-lifecycle-hooks-value-origin-completion-protocol",
+   "n_f2p": 67,
+   "n_p2p": 160,
+   "mutation": {
+    "n": 12,
+    "killed": 11,
+    "kill_rate": 0.917,
+    "survivors": [
+     "src/click/core.py:339: `show_effective: bool | None` -> `pass`"
+    ]
+   },
+   "wall_seconds": 40.6
+  },
+  {
+   "atoms": [
+    "pallets__click-0102-help-effective-value-origin",
+    "pallets__click-0103-line-completion-protocol",
+    "pallets__click-0104-option-shorthand-expansions"
+   ],
+   "integration": 1,
+   "gates": {
+    "ok": true,
+    "gates": {
+     "hygiene": true,
+     "grounding": true,
+     "gold_tests": true,
+     "feature_absent": true,
+     "regression": true,
+     "mutation": true,
+     "fairness": true,
+     "novelty": true
+    },
+    "n_f2p": 79,
+    "n_p2p": 160,
+    "mutation": {
+     "n": 12,
+     "killed": 11,
+     "kill_rate": 0.917,
+     "survivors": [
+      "src/click/core.py:3716: `assert ctx.default_map is not None` -> `pass`"
+     ]
+    },
+    "warnings": [
+     "1 new tests pass at base and are not graded"
+    ]
+   },
+   "check_seconds": 40.9,
+   "status": "valid",
+   "instance_id": "pallets__click-0204-combo-value-origin-completion-protocol-shorthand-expansions",
+   "n_f2p": 79,
+   "n_p2p": 160,
+   "mutation": {
+    "n": 12,
+    "killed": 11,
+    "kill_rate": 0.917,
+    "survivors": [
+     "src/click/core.py:3716: `assert ctx.default_map is not None` -> `pass`"
+    ]
+   },
+   "wall_seconds": 41.0
+  },
+  {
+   "atoms": [
+    "pallets__click-0101-group-subcommand-lifecycle-hooks",
+    "pallets__click-0103-line-completion-protocol",
+    "pallets__click-0105-numbered-choice-prompts"
+   ],
+   "integration": 1,
+   "gates": {
+    "ok": true,
+    "gates": {
+     "hygiene": true,
+     "grounding": true,
+     "gold_tests": true,
+     "feature_absent": true,
+     "regression": true,
+     "mutation": true,
+     "fairness": true,
+     "novelty": true
+    },
+    "n_f2p": 69,
+    "n_p2p": 160,
+    "mutation": {
+     "n": 12,
+     "killed": 11,
+     "kill_rate": 0.917,
+     "survivors": [
+      "src/click/termui.py:176: `numbered: bool = False,` -> `numbered: bool = True,`"
+     ]
+    },
+    "warnings": [
+     "1 new tests pass at base and are not graded"
+    ]
+   },
+   "check_seconds": 45.7,
+   "status": "valid",
+   "instance_id": "pallets__click-0205-combo-lifecycle-hooks-completion-protocol-choice-prompts",
+   "n_f2p": 69,
+   "n_p2p": 160,
+   "mutation": {
+    "n": 12,
+    "killed": 11,
+    "kill_rate": 0.917,
+    "survivors": [
+     "src/click/termui.py:176: `numbered: bool = False,` -> `numbered: bool = True,`"
+    ]
+   },
+   "wall_seconds": 45.7
+  }
+ ]
+}

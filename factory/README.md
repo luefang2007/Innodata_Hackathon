@@ -34,6 +34,16 @@ Outputs (default `../submission/`):
 | `runs/<run_id>/summary.json` | the same plus every gate result per attempt |
 | `runs/<run_id>/<task>/` | every model request/response and every failure report (audit trail) |
 
+Compose harder multi-feature tasks from the validated packages (no model calls, ~3 min):
+
+```bash
+.cache/venv/bin/python -m taskfactory compose ../submission/generated_tasks/* --span 3 --n 5 \
+    --atom-summary ../submission/runs/<run_id>/summary.json
+```
+
+This writes `generated_tasks_composite/`, `pipeline_run_generated_tasks_composite.json` (each feature's
+real generation cost split across the composites that use it) and `compose_summary.json`.
+
 Re-check emitted packages without model calls:
 
 ```bash
@@ -68,7 +78,15 @@ gates      local, no Docker, ~30 s per candidate:
              novelty         the feature tests do not pass on live upstream main
 repair     on any failure the exact failure report goes back to Claude (max 3 attempts in total)
 emit       Harbor package: task.toml, instruction.md, solution/, tests/, environment/Dockerfile
+compose    (optional, no model calls) span-k tasks: k validated features must land in one change.
+           Merged spec, golds applied together, all feature tests, regression slice re-selected for
+           the combined change, and every gate re-run on the combination. Golds that edit the same
+           code and cannot coexist are detected and the combination is dropped.
 ```
+
+Difficulty is a dial: span 1 is a single generated feature, span k asks for k of them at once. A
+cheap one-shot probe (`python -m taskfactory probe`, Haiku 5.5 via OpenRouter) showed span-1 tasks are
+too easy (14/15 one-shot solves), which is why the submitted set uses span 3.
 
 Model: Claude Opus 5.5 at effort `high` with structured JSON output. Two interchangeable backends:
 OpenRouter (`OPENROUTER_API_KEY`, model `anthropic/claude-opus-5.5`) or the Anthropic API
@@ -101,4 +119,7 @@ the kind of reasoning they demand.
 - Local gates run on the host OS; the container is Linux. Tests with OS-dependent markers are excluded from
   the regression slice, and the Harbor oracle/nop self-check is the final authority.
 - The fairness gate is lexical: it catches unstated wording, not unstated logic.
+- Composite difficulty is not measured yet: the probe ran on single features only, and the official
+  Haiku 5.5 benchmark needs Docker + Harbor. Composites drawn from five features necessarily share
+  features with each other.
 - Novelty is checked against upstream main and the commit log, not against open pull requests.

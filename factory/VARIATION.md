@@ -51,3 +51,35 @@ many of 12 broken versions of the gold the feature tests caught.
 
 The five tasks touch five different click subsystems and five different kinds of behaviour. No two
 share a primary module, and their regression slices come from the coverage of different code.
+
+## Second axis of variation: span (difficulty as a dial)
+
+A cheap one-shot probe (Haiku 5.5, no tools, no test runs) solved 14 of 15 attempts on the single-feature
+tasks above. Rich, precise specs make each feature fair, but one feature at a time is too easy. Instead
+of asking the model for harder features, the factory composes verified ones: a span-k task asks for k
+features in one change, with one merged spec, the k golds applied together, every feature test, and a
+regression slice re-selected for the combined change. All eight gates run again on the combination, so
+compatibility is checked, not assumed. Composition makes no model calls.
+
+Two rules pick the combinations:
+
+1. **Integration first.** Combinations whose golds edit the same source files rank first, so the solver
+   has to coordinate changes in shared code (`core.py` is touched by four of the five features).
+2. **Balanced reuse.** Each feature is used at most ceil(n·k / features) times. If incompatible golds leave
+   gaps, the cap relaxes and the least-used features fill them.
+
+The gates found one real conflict: *help effective value* and *numbered choice prompts* edit the same
+lines of `core.py`, so their golds cannot coexist and every combination containing both was dropped.
+
+| Task | Features (span 3) | F2P | P2P | Mutants |
+|---|---|---|---|---|
+| 0201 | lifecycle hooks + help effective value + option shorthands | 56 | 160 | 12/12 |
+| 0202 | lifecycle hooks + option shorthands + numbered choice prompts | 58 | 160 | 11/12 |
+| 0203 | lifecycle hooks + help effective value + line completion protocol | 67 | 160 | 11/12 |
+| 0204 | help effective value + line completion protocol + option shorthands | 79 | 160 | 11/12 |
+| 0205 | lifecycle hooks + line completion protocol + numbered choice prompts | 69 | 160 | 11/12 |
+
+Each composite differs from every other in at least one feature and in the subsystems it forces the
+solver to integrate. The trade-off is explicit: five span-3 tasks drawn from five features must share
+features, which costs some variation to buy difficulty. A larger atom pool (another `generate` run)
+removes the overlap; the composition stage itself scales without model cost.

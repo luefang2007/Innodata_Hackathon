@@ -84,8 +84,9 @@ reward = 0.0
 """
 
 
-def emit(out_root: Path, iid: str, spec: str, gold_patch: str, test_patch: str, test_path: str,
+def emit(out_root: Path, iid: str, spec: str, gold_patch: str, test_patch: str, test_path: str | list[str],
          f2p: list[str], p2p: list[str]) -> Path:
+    test_paths = [test_path] if isinstance(test_path, str) else list(test_path)
     dest = out_root / iid
     if dest.exists():
         shutil.rmtree(dest)
@@ -104,7 +105,7 @@ def emit(out_root: Path, iid: str, spec: str, gold_patch: str, test_patch: str, 
     repo.write_text(dest / "tests" / "test_patch.diff", test_patch)
     repo.write_text(dest / "tests" / "fail_to_pass.json", json.dumps(sorted(f2p), indent=1) + "\n")
     repo.write_text(dest / "tests" / "pass_to_pass.json", json.dumps(sorted(p2p), indent=1) + "\n")
-    files = [test_path] + sorted({t.split("::")[0] for t in p2p} - {test_path})
+    files = test_paths + sorted({t.split("::")[0] for t in p2p} - set(test_paths))
     repo.write_text(dest / "tests" / "run_script.sh",
                     RUN_SCRIPT.format(files="\n".join(f'  "{f}"' for f in files)))
     repo.write_text(dest / "environment" / "Dockerfile", DOCKERFILE.format(
@@ -122,9 +123,10 @@ def emit(out_root: Path, iid: str, spec: str, gold_patch: str, test_patch: str, 
 def load(task_dir: Path) -> dict:
     """Read an emitted package back (for re-checking)."""
     tp = repo.read_text(task_dir / "tests" / "test_patch.diff")
-    test_path = next(l[6:].strip() for l in tp.splitlines() if l.startswith("+++ b/"))
+    paths = [l[6:].strip() for l in tp.splitlines() if l.startswith("+++ b/")]
     content = "\n".join(l[1:] for l in tp.splitlines()
                         if l.startswith("+") and not l.startswith("+++")) + "\n"
     return {"spec": repo.read_text(task_dir / "instruction.md"),
             "gold_patch": repo.read_text(task_dir / "solution" / "patch.diff"),
-            "test_patch": tp, "test_path": test_path, "test_content": content}
+            "test_patch": tp, "test_path": paths[0], "test_content": content,
+            "extra_test_paths": paths[1:]}

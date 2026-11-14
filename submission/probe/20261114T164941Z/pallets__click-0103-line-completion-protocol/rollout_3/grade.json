@@ -1,0 +1,12 @@
+{
+ "applied": true,
+ "reward": 1.0,
+ "resolved": true,
+ "f2p": "38/38",
+ "p2p": "19/19",
+ "touched": [
+  "src/click/shell_completion.py"
+ ],
+ "rollout": 3,
+ "tries": 1
+}

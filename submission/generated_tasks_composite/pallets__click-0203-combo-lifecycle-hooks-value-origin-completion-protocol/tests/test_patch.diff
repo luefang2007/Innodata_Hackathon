@@ -1,0 +1,1242 @@
+diff --git a/tests/test_group_subcommand_lifecycle_hooks.py b/tests/test_group_subcommand_lifecycle_hooks.py
+new file mode 100644
+index 0000000..b1739c0
+--- /dev/null
++++ b/tests/test_group_subcommand_lifecycle_hooks.py
+@@ -0,0 +1,537 @@
++import click
++from click.core import ParameterSource
++
++
++def test_chain_mode_runs_hooks_around_each_subcommand(runner):
++    @click.group(chain=True)
++    def cli():
++        click.echo("group")
++
++    @cli.before_subcommand
++    def before(ctx):
++        click.echo(f"before {ctx.info_name}")
++
++    @cli.after_subcommand
++    def after(ctx, result):
++        click.echo(f"after {ctx.info_name} -> {result!r}")
++
++    @cli.result_callback()
++    def done(results):
++        click.echo(f"results {results!r}")
++
++    @cli.command()
++    def a():
++        click.echo("a")
++        return 1
++
++    @cli.command()
++    def b():
++        click.echo("b")
++        return 2
++
++    result = runner.invoke(cli, ["a", "b"])
++    assert result.exit_code == 0, result.output
++    assert result.output == (
++        "group\nbefore a\na\nafter a -> 1\nbefore b\nb\nafter b -> 2\n"
++        "results [1, 2]\n"
++    )
++
++
++def test_hook_ordering_constructor_first_and_after_reversed(runner):
++    def first(ctx):
++        click.echo("first")
++
++    @click.group(before_subcommand=first)
++    def cli():
++        pass
++
++    def second(ctx):
++        click.echo("second")
++
++    assert cli.before_subcommand(second) is second
++
++    def after_a(ctx, result):
++        click.echo("after-a")
++
++    def after_b(ctx, result):
++        click.echo("after-b")
++
++    assert cli.after_subcommand(after_a) is after_a
++    assert cli.after_subcommand(after_b) is after_b
++
++    @cli.command()
++    def run():
++        click.echo("run")
++
++    result = runner.invoke(cli, ["run"])
++    assert result.exit_code == 0, result.output
++    assert result.output == "first\nsecond\nrun\nafter-b\nafter-a\n"
++
++
++def test_before_hook_usage_error_shows_subcommand_usage(runner):
++    @click.group()
++    @click.option("--dry-run", is_flag=True)
++    def cli(dry_run):
++        pass
++
++    @cli.before_subcommand
++    def check(ctx):
++        if ctx.parent.params["dry_run"] and ctx.info_name == "deploy":
++            raise click.UsageError("deploy cannot run with --dry-run")
++
++    @cli.command()
++    def deploy():
++        click.echo("deploying")
++
++    result = runner.invoke(cli, ["--dry-run", "deploy"])
++    assert result.exit_code == 2
++    assert result.output == (
++        "Usage: cli deploy [OPTIONS]\n"
++        "Try 'cli deploy --help' for help.\n"
++        "\n"
++        "Error: deploy cannot run with --dry-run\n"
++    )
++
++    result = runner.invoke(cli, ["deploy"])
++    assert result.exit_code == 0
++    assert result.output == "deploying\n"
++
++
++def test_before_hook_sees_processed_params_sources_and_can_modify_params(runner):
++    seen = {}
++
++    @click.group()
++    @click.option("--verbose", is_flag=True)
++    def cli(verbose):
++        pass
++
++    @cli.before_subcommand
++    def before(ctx):
++        seen["ctx"] = ctx
++        seen["current"] = click.get_current_context() is ctx
++        seen["params"] = dict(ctx.params)
++        seen["sources"] = {
++            n: ctx.get_parameter_source(n) for n in ("name", "count", "level")
++        }
++        seen["parent"] = dict(ctx.parent.params)
++        ctx.params["count"] = ctx.params["count"] * 10
++        ctx.params.pop("level")
++        ctx.params["extra"] = "x"
++
++    @cli.command()
++    @click.option("--name", envvar="HOOK_NAME")
++    @click.option("--count", type=int, default=2)
++    @click.option("--level", default="low")
++    @click.pass_context
++    def run(ctx, name, count, extra):
++        click.echo(f"{name} {count} {extra} {ctx is seen['ctx']}")
++
++    result = runner.invoke(
++        cli,
++        ["--verbose", "run", "--count", "3"],
++        env={"HOOK_NAME": "alice"},
++        default_map={"run": {"level": "high"}},
++    )
++    assert result.exit_code == 0, result.output
++    assert result.output == "alice 30 x True\n"
++    assert seen["current"] is True
++    assert seen["params"] == {"name": "alice", "count": 3, "level": "high"}
++    assert seen["sources"] == {
++        "name": ParameterSource.ENVIRONMENT,
++        "count": ParameterSource.COMMANDLINE,
++        "level": ParameterSource.DEFAULT_MAP,
++    }
++    assert seen["parent"] == {"verbose": True}
++
++
++def test_after_hook_return_value_is_ignored():
++    seen = []
++
++    @click.group()
++    def cli():
++        pass
++
++    @cli.after_subcommand
++    def after(ctx, result):
++        seen.append((click.get_current_context() is ctx, result))
++        return "replaced"
++
++    @cli.result_callback()
++    def done(result):
++        seen.append(("rc", result))
++        return result
++
++    @cli.command()
++    def run():
++        return 42
++
++    assert cli.main(["run"], standalone_mode=False) == 42
++    assert seen == [(True, 42), ("rc", 42)]
++
++    @click.group(chain=True)
++    def chained():
++        pass
++
++    @chained.after_subcommand
++    def chained_after(ctx, result):
++        return "replaced"
++
++    @chained.command()
++    def a():
++        return 1
++
++    @chained.command()
++    def b():
++        return 2
++
++    assert chained.main(["a", "b"], standalone_mode=False) == [1, 2]
++
++
++def test_before_hook_error_stops_subcommand_and_other_hooks(runner):
++    calls = []
++
++    @click.group()
++    def cli():
++        pass
++
++    @cli.before_subcommand
++    def b1(ctx):
++        calls.append("b1")
++        raise click.ClickException("stop")
++
++    @cli.before_subcommand
++    def b2(ctx):
++        calls.append("b2")
++
++    @cli.after_subcommand
++    def a1(ctx, result):
++        calls.append("a1")
++
++    @cli.command()
++    def run():
++        calls.append("run")
++
++    result = runner.invoke(cli, ["run"])
++    assert result.exit_code == 1
++    assert result.output == "Error: stop\n"
++    assert calls == ["b1"]
++
++
++def test_subcommand_exit_and_abort_skip_after_hooks(runner):
++    @click.group()
++    def cli():
++        pass
++
++    @cli.before_subcommand
++    def before(ctx):
++        click.echo(f"before {ctx.info_name}")
++
++    @cli.after_subcommand
++    def after(ctx, result):
++        click.echo(f"after {ctx.info_name}")
++
++    @cli.command()
++    @click.pass_context
++    def quit(ctx):
++        click.echo("quit")
++        ctx.exit(3)
++
++    @cli.command()
++    def stop():
++        click.echo("stop")
++        raise click.Abort()
++
++    result = runner.invoke(cli, ["quit"])
++    assert result.exit_code == 3
++    assert result.output == "before quit\nquit\n"
++
++    result = runner.invoke(cli, ["stop"])
++    assert result.exit_code == 1
++    assert result.output == "before stop\nstop\nAborted!\n"
++
++
++def test_after_hook_error_skips_remaining_hooks_and_result_callback(runner):
++    @click.group()
++    def cli():
++        pass
++
++    @cli.after_subcommand
++    def after_a(ctx, result):
++        click.echo("after-a")
++
++    @cli.after_subcommand
++    def after_b(ctx, result):
++        click.echo("after-b")
++        raise click.ClickException("boom")
++
++    @cli.result_callback()
++    def done(result):
++        click.echo("result-callback")
++
++    @cli.command()
++    def run():
++        click.echo("run")
++
++    result = runner.invoke(cli, ["run"])
++    assert result.exit_code == 1
++    assert result.output == "run\nafter-b\nError: boom\n"
++
++
++def test_hooks_apply_only_to_direct_subcommands(runner):
++    @click.group()
++    def outer():
++        click.echo("outer")
++
++    @outer.before_subcommand
++    def ob(ctx):
++        click.echo(f"outer-before {ctx.info_name}")
++
++    @outer.after_subcommand
++    def oa(ctx, result):
++        click.echo(f"outer-after {ctx.info_name} {result!r}")
++
++    @outer.group()
++    def inner():
++        click.echo("inner")
++
++    @inner.result_callback()
++    def inner_done(result):
++        click.echo(f"inner-result {result!r}")
++        return 2
++
++    @inner.command()
++    def run():
++        click.echo("run")
++        return 1
++
++    result = runner.invoke(outer, ["inner", "run"], standalone_mode=False)
++    assert result.exception is None, result.output
++    assert result.return_value == 2
++    assert result.output == (
++        "outer\nouter-before inner\ninner\nrun\ninner-result 1\n"
++        "outer-after inner 2\n"
++    )
++
++
++def test_hooks_not_run_for_help_or_parse_errors(runner):
++    calls = []
++
++    @click.group()
++    def cli():
++        pass
++
++    @cli.before_subcommand
++    def before(ctx):
++        calls.append(f"before {ctx.info_name}")
++
++    @cli.after_subcommand
++    def after(ctx, result):
++        calls.append(f"after {ctx.info_name}")
++
++    @cli.command()
++    @click.option("--x", required=True)
++    def need(x):
++        calls.append("need")
++
++    result = runner.invoke(cli, ["need", "--help"])
++    assert result.exit_code == 0
++    result = runner.invoke(cli, ["need"])
++    assert result.exit_code == 2
++    assert result.output.splitlines()[-1] == "Error: Missing option '--x'."
++    assert calls == []
++
++    @click.group(chain=True)
++    def chained():
++        pass
++
++    @chained.before_subcommand
++    def cb(ctx):
++        calls.append(f"before {ctx.info_name}")
++
++    @chained.after_subcommand
++    def ca(ctx, result):
++        calls.append(f"after {ctx.info_name}")
++
++    @chained.command()
++    def a():
++        calls.append("a")
++
++    @chained.command()
++    @click.option("--x", required=True)
++    def b(x):
++        calls.append("b")
++
++    result = runner.invoke(chained, ["a", "b"])
++    assert result.exit_code == 2
++    assert result.output.splitlines()[-1] == "Error: Missing option '--x'."
++    assert calls == []
++
++
++def test_hooks_not_run_for_context_invoke_or_without_subcommand(runner):
++    @click.group()
++    def cli():
++        pass
++
++    @cli.before_subcommand
++    def before(ctx):
++        click.echo(f"before {ctx.info_name}")
++
++    @cli.after_subcommand
++    def after(ctx, result):
++        click.echo(f"after {ctx.info_name}")
++
++    @cli.command()
++    def target():
++        click.echo("target")
++
++    @cli.command()
++    @click.pass_context
++    def caller(ctx):
++        ctx.invoke(target)
++        ctx.forward(target)
++
++    result = runner.invoke(cli, ["caller"])
++    assert result.exit_code == 0, result.output
++    assert result.output == "before caller\ntarget\ntarget\nafter caller\n"
++
++    @click.group(invoke_without_command=True)
++    def lone():
++        click.echo("lone")
++
++    @lone.before_subcommand
++    def lb(ctx):
++        click.echo("lone-before")
++
++    @lone.after_subcommand
++    def la(ctx, result):
++        click.echo("lone-after")
++
++    @lone.command()
++    def sub():
++        click.echo("sub")
++
++    result = runner.invoke(lone, [])
++    assert result.exit_code == 0, result.output
++    assert result.output == "lone\n"
++
++
++def test_after_hooks_run_before_context_close_callbacks(runner):
++    events = []
++
++    @click.group()
++    def cli():
++        pass
++
++    @cli.after_subcommand
++    def after(ctx, result):
++        events.append("after")
++
++    @cli.command()
++    @click.pass_context
++    def run(ctx):
++        ctx.call_on_close(lambda: events.append("close"))
++        events.append("callback")
++
++    result = runner.invoke(cli, ["run"])
++    assert result.exit_code == 0, result.output
++    assert events == ["callback", "after", "close"]
++
++
++def test_command_collection_uses_own_hooks_not_source_hooks(runner):
++    src = click.Group("src")
++
++    @src.before_subcommand
++    def src_before(ctx):
++        click.echo("src-before")
++
++    @src.after_subcommand
++    def src_after(ctx, result):
++        click.echo("src-after")
++
++    @src.command()
++    def hello():
++        click.echo("hello")
++
++    def coll_before(ctx):
++        click.echo(f"coll-before {ctx.info_name}")
++
++    def coll_after(ctx, result):
++        click.echo(f"coll-after {ctx.info_name} {result!r}")
++
++    coll = click.CommandCollection(
++        "coll",
++        sources=[src],
++        before_subcommand=coll_before,
++        after_subcommand=coll_after,
++    )
++
++    @coll.command()
++    def own():
++        click.echo("own")
++        return 5
++
++    result = runner.invoke(coll, ["hello"])
++    assert result.exit_code == 0, result.output
++    assert result.output == "coll-before hello\nhello\ncoll-after hello None\n"
++
++    result = runner.invoke(coll, ["own"])
++    assert result.exit_code == 0, result.output
++    assert result.output == "coll-before own\nown\ncoll-after own 5\n"
++
++
++def test_shell_completion_does_not_call_hooks():
++    from click.shell_completion import ShellComplete
++
++    calls = []
++
++    @click.group()
++    def cli():
++        pass
++
++    @cli.before_subcommand
++    def before(ctx):
++        calls.append("before")
++
++    @cli.after_subcommand
++    def after(ctx, result):
++        calls.append("after")
++
++    @cli.command()
++    @click.option("--name")
++    def run(name):
++        calls.append("run")
++
++    comp = ShellComplete(cli, {}, "cli", "_CLI_COMPLETE")
++    assert [c.value for c in comp.get_completions(["run"], "--")] == [
++        "--name",
++        "--help",
++    ]
++    comp = ShellComplete(cli, {}, "cli", "_CLI_COMPLETE")
++    assert [c.value for c in comp.get_completions([], "r")] == ["run"]
++    assert calls == []
++
++
++def test_to_info_dict_unchanged_by_hooks():
++    def build(with_hooks):
++        kwargs = {}
++        if with_hooks:
++            kwargs = {
++                "before_subcommand": lambda ctx: None,
++                "after_subcommand": lambda ctx, result: None,
++            }
++        group = click.Group("cli", **kwargs)
++        group.add_command(
++            click.Command("run", params=[click.Option(["--n"], type=int)])
++        )
++        if with_hooks:
++            group.before_subcommand(lambda ctx: None)
++            group.after_subcommand(lambda ctx, result: None)
++        return group
++
++    with click.Context(build(True)) as ctx:
++        with_hooks = ctx.to_info_dict()
++
++    with click.Context(build(False)) as ctx:
++        without_hooks = ctx.to_info_dict()
++
++    assert with_hooks == without_hooks
+diff --git a/tests/test_help_effective_value_origin.py b/tests/test_help_effective_value_origin.py
+new file mode 100644
+index 0000000..492be76
+--- /dev/null
++++ b/tests/test_help_effective_value_origin.py
+@@ -0,0 +1,374 @@
++import enum
++
++import click
++from click import ParameterSource
++
++
++def test_help_shows_effective_value_from_default_and_env(runner):
++    @click.command(context_settings={"show_effective": True})
++    @click.option("--port", default=8000, envvar="APP_PORT", help="Port to bind.")
++    @click.option("--host", help="Host name.")
++    @click.option("--tag", multiple=True, default=["a", "b"], help="Tags.")
++    def serve(port, host, tag):
++        pass
++
++    result = runner.invoke(
++        serve, ["--help"], env={"APP_PORT": None}, terminal_width=80
++    )
++    assert result.exit_code == 0
++    assert result.output == (
++        "Usage: serve [OPTIONS]\n"
++        "\n"
++        "Options:\n"
++        "  --port INTEGER  Port to bind.  [current: 8000 (default)]\n"
++        "  --host TEXT     Host name.\n"
++        "  --tag TEXT      Tags.  [current: a, b (default)]\n"
++        "  --help          Show this message and exit.\n"
++    )
++
++    result = runner.invoke(
++        serve, ["--help"], env={"APP_PORT": "9000"}, terminal_width=80
++    )
++    assert result.exit_code == 0
++    assert result.output.splitlines()[3] == (
++        "  --port INTEGER  Port to bind.  [current: 9000 (env var APP_PORT)]"
++    )
++
++
++def test_default_map_prompt_and_hidden_input_in_help(runner):
++    @click.command(context_settings={"show_effective": True, "show_default": True})
++    @click.option("--level", default="info")
++    @click.option("--user", prompt=True)
++    @click.option("--token", envvar="TOKEN", hide_input=True)
++    def cli(level, user, token):
++        pass
++
++    result = runner.invoke(
++        cli,
++        ["--help"],
++        env={"TOKEN": "secret"},
++        default_map={"level": "debug"},
++        terminal_width=80,
++    )
++    assert result.exit_code == 0
++    assert result.output == (
++        "Usage: cli [OPTIONS]\n"
++        "\n"
++        "Options:\n"
++        "  --level TEXT  [current: debug (default map)]\n"
++        "  --user TEXT   [current: (prompt)]\n"
++        "  --token TEXT  [current: *** (env var TOKEN)]\n"
++        "  --help        Show this message and exit.\n"
++    )
++
++
++def test_subcommand_inherits_setting_and_uses_auto_envvar(runner):
++    @click.group(
++        context_settings={"show_effective": True, "auto_envvar_prefix": "APP"}
++    )
++    def cli():
++        pass
++
++    @cli.command()
++    @click.option("--verbose/--quiet", default=False)
++    @click.option("--count", type=int, default=3, show_effective=False)
++    def run(verbose, count):
++        pass
++
++    result = runner.invoke(
++        cli,
++        ["run", "--help"],
++        env={"APP_RUN_VERBOSE": "1", "APP_RUN_COUNT": None},
++        terminal_width=80,
++    )
++    assert result.exit_code == 0
++    assert result.output == (
++        "Usage: cli run [OPTIONS]\n"
++        "\n"
++        "Options:\n"
++        "  --verbose / --quiet  [current: 1 (env var APP_RUN_VERBOSE)]\n"
++        "  --count INTEGER\n"
++        "  --help               Show this message and exit.\n"
++    )
++
++    result = runner.invoke(
++        cli,
++        ["run", "--help"],
++        env={"APP_RUN_VERBOSE": None, "APP_RUN_COUNT": None},
++        terminal_width=80,
++    )
++    assert result.exit_code == 0
++    assert result.output.splitlines()[3] == (
++        "  --verbose / --quiet  [current: quiet (default)]"
++    )
++
++
++def test_group_default_map_entry_applies_and_callables_not_called(runner):
++    calls = []
++
++    def boom():
++        calls.append(1)
++        raise RuntimeError("called")
++
++    @click.group(context_settings={"show_effective": True})
++    def cli():
++        pass
++
++    @cli.command()
++    @click.option("--level", default="info")
++    @click.option("--mode", default="fast")
++    def run(level, mode):
++        pass
++
++    result = runner.invoke(
++        cli,
++        ["run", "--help"],
++        default_map={"run": {"level": "debug", "mode": boom}},
++        terminal_width=80,
++    )
++    assert result.exit_code == 0
++    assert result.output == (
++        "Usage: cli run [OPTIONS]\n"
++        "\n"
++        "Options:\n"
++        "  --level TEXT  [current: debug (default map)]\n"
++        "  --mode TEXT   [current: (dynamic) (default map)]\n"
++        "  --help        Show this message and exit.\n"
++    )
++    assert calls == []
++
++
++def test_env_var_outranks_prompt_default_map_and_default(monkeypatch):
++    monkeypatch.setenv("CLICK_EFF_ONE", "")
++    monkeypatch.setenv("CLICK_EFF_TWO", "two")
++    cmd = click.Command("cli")
++    opt = click.Option(
++        ["--name"],
++        envvar=["CLICK_EFF_ONE", "CLICK_EFF_TWO"],
++        default="d",
++        prompt=True,
++    )
++    ctx = click.Context(cmd, default_map={"name": "m"}, show_effective=True)
++    assert opt.get_effective_value(ctx) == ("two", ParameterSource.ENVIRONMENT)
++    assert opt.get_help_extra(ctx) == {"current": "two (env var CLICK_EFF_TWO)"}
++
++    monkeypatch.delenv("CLICK_EFF_TWO")
++    assert opt.get_effective_value(ctx) == (None, ParameterSource.PROMPT)
++    assert opt.get_help_extra(ctx) == {"current": "(prompt)"}
++
++    no_prompt = click.Option(
++        ["--name"], envvar=["CLICK_EFF_ONE", "CLICK_EFF_TWO"], default="d"
++    )
++    assert no_prompt.get_effective_value(ctx) == ("m", ParameterSource.DEFAULT_MAP)
++    assert no_prompt.get_effective_value(click.Context(cmd)) == (
++        "d",
++        ParameterSource.DEFAULT,
++    )
++
++
++def test_prompt_required_false_skips_prompt_step():
++    cmd = click.Command("cli")
++    opt = click.Option(["--name"], prompt=True, prompt_required=False, default="x")
++    assert opt.get_effective_value(click.Context(cmd)) == (
++        "x",
++        ParameterSource.DEFAULT,
++    )
++    ctx = click.Context(cmd, default_map={"name": "y"})
++    assert opt.get_effective_value(ctx) == ("y", ParameterSource.DEFAULT_MAP)
++
++    required = click.Option(
++        ["--name"], prompt=True, prompt_required=False, required=True
++    )
++    assert required.get_effective_value(ctx) == (None, ParameterSource.PROMPT)
++
++
++def test_auto_envvar_respects_allow_from_autoenv_and_is_raw(monkeypatch):
++    monkeypatch.setenv("CLICK_EFF_NAME", "auto")
++    monkeypatch.setenv("CLICK_EFF_PAIR", "a b")
++    cmd = click.Command("cli")
++    ctx = click.Context(cmd, auto_envvar_prefix="click_eff", show_effective=True)
++
++    allowed = click.Option(["--name"], default="d")
++    assert allowed.get_effective_value(ctx) == ("auto", ParameterSource.ENVIRONMENT)
++    assert allowed.get_help_extra(ctx) == {"current": "auto (env var CLICK_EFF_NAME)"}
++
++    denied = click.Option(["--name"], default="d", allow_from_autoenv=False)
++    assert denied.get_effective_value(ctx) == ("d", ParameterSource.DEFAULT)
++
++    pair = click.Option(["--pair"], nargs=2, envvar="CLICK_EFF_PAIR")
++    assert pair.get_effective_value(ctx) == ("a b", ParameterSource.ENVIRONMENT)
++    assert pair.get_help_extra(ctx) == {"current": "a b (env var CLICK_EFF_PAIR)"}
++
++
++def test_effective_value_defaults_and_unset():
++    cmd = click.Command("cli")
++    ctx = click.Context(cmd)
++
++    def factory():
++        raise RuntimeError("called")
++
++    assert click.Option(["--x"]).get_effective_value(ctx) is None
++    assert click.Option(["--x"], default=None).get_effective_value(ctx) == (
++        None,
++        ParameterSource.DEFAULT,
++    )
++    assert click.Option(["--v"], is_flag=True).get_effective_value(ctx) == (
++        False,
++        ParameterSource.DEFAULT,
++    )
++    multi_flag = click.Option(["--f"], is_flag=True, flag_value="x", multiple=True)
++    assert multi_flag.get_effective_value(ctx) == ((), ParameterSource.DEFAULT)
++    value, source = click.Option(["--c"], default=factory).get_effective_value(ctx)
++    assert value is factory
++    assert source is ParameterSource.DEFAULT
++
++
++def test_value_rendering_rules():
++    class Color(enum.Enum):
++        RED = "r"
++
++    def factory():
++        return "x"
++
++    cmd = click.Command("cli")
++    ctx = click.Context(cmd, show_effective=True)
++
++    assert click.Option(["--f"], default=factory).get_help_extra(ctx) == {
++        "current": "(dynamic) (default)"
++    }
++    assert click.Option(
++        ["--c"], type=click.Choice(Color), default=Color.RED
++    ).get_help_extra(ctx) == {"current": "RED (default)"}
++    assert click.Option(
++        ["--pt"], nargs=2, multiple=True, type=int, default=[(1, 2), (3, 4)]
++    ).get_help_extra(ctx) == {"current": "1 2, 3 4 (default)"}
++    assert click.Option(["--e"], default="").get_help_extra(ctx) == {
++        "current": '"" (default)'
++    }
++    assert click.Option(["--pw"], default="pw", hide_input=True).get_help_extra(
++        ctx
++    ) == {"current": "*** (default)"}
++    color = click.Option(["--color/--no-color"], default=True)
++    assert color.get_help_extra(ctx) == {"current": "color (default)"}
++    map_ctx = click.Context(cmd, show_effective=True, default_map={"color": False})
++    assert color.get_help_extra(map_ctx) == {"current": "no-color (default map)"}
++
++
++def test_omitted_when_no_value_or_false_flag():
++    cmd = click.Command("cli")
++    ctx = click.Context(cmd, show_effective=True)
++
++    assert click.Option(["--x"]).get_help_extra(ctx) == {}
++    assert click.Option(["--x"], default=None).get_help_extra(ctx) == {}
++    assert click.Option(["--t"], multiple=True, default=[]).get_help_extra(ctx) == {}
++    assert click.Option(["--v"], is_flag=True).get_help_extra(ctx) == {}
++    assert cmd.get_help_option(ctx).get_help_extra(ctx) == {}
++    assert click.Option(["--on"], is_flag=True, default=True).get_help_extra(
++        ctx
++    ) == {"current": "True (default)"}
++
++    map_ctx = click.Context(
++        cmd, show_effective=True, default_map={"v": False, "name": None}
++    )
++    assert click.Option(["--v"], is_flag=True).get_help_extra(map_ctx) == {
++        "current": "False (default map)"
++    }
++    name = click.Option(["--name"], default="d")
++    assert name.get_effective_value(map_ctx) == (None, ParameterSource.DEFAULT_MAP)
++    assert name.get_help_extra(map_ctx) == {}
++
++
++def test_current_item_replaces_default_item_for_default_origins():
++    cmd = click.Command("cli")
++    ctx = click.Context(cmd, show_effective=True)
++
++    custom = click.Option(["--n"], default=5, show_default="five")
++    assert custom.get_help_extra(ctx) == {"current": "5 (default)"}
++    assert custom.get_help_record(ctx)[1] == "[current: 5 (default)]"
++
++    map_ctx = click.Context(
++        cmd, show_effective=True, show_default=True, default_map={"n": 6}
++    )
++    plain = click.Option(["--n"], default=5)
++    assert plain.get_help_extra(map_ctx) == {"current": "6 (default map)"}
++
++    prompted = click.Option(["--u"], prompt=True, default="x", show_default="custom")
++    assert prompted.get_help_extra(ctx) == {
++        "default": "(custom)",
++        "current": "(prompt)",
++    }
++    assert prompted.get_help_record(ctx)[1] == (
++        "[default: (custom); current: (prompt)]"
++    )
++
++
++def test_item_order_with_env_range_and_required(monkeypatch):
++    monkeypatch.setenv("CLICK_EFF_N", "7")
++    cmd = click.Command("cli")
++    ctx = click.Context(cmd, show_effective=True)
++    opt = click.Option(
++        ["--n"],
++        type=click.IntRange(0, 10),
++        default=5,
++        show_default=True,
++        required=True,
++        envvar="CLICK_EFF_N",
++        show_envvar=True,
++        help="Num.",
++    )
++    assert opt.get_help_record(ctx)[1] == (
++        "Num.  [env var: CLICK_EFF_N; default: 5; current: 7 (env var CLICK_EFF_N);"
++        " 0<=x<=10; required]"
++    )
++
++    monkeypatch.delenv("CLICK_EFF_N")
++    assert opt.get_help_record(ctx)[1] == (
++        "Num.  [env var: CLICK_EFF_N; current: 5 (default); 0<=x<=10; required]"
++    )
++
++
++def test_option_setting_overrides_context_and_inheritance():
++    group = click.Group("grp")
++    cmd = click.Command("cli")
++
++    root = click.Context(group)
++    assert not root.show_effective
++    parent = click.Context(group, show_effective=True)
++    child = click.Context(cmd, parent=parent)
++    assert child.show_effective is True
++    disabled = click.Context(cmd, parent=parent, show_effective=False)
++    assert disabled.show_effective is False
++
++    off = click.Option(["--k"], default=3, show_effective=False)
++    assert off.get_help_extra(child) == {}
++    assert off.get_effective_value(child) == (3, ParameterSource.DEFAULT)
++
++    on = click.Option(["--k"], default=3, show_effective=True)
++    assert on.show_effective is True
++    assert on.get_help_extra(click.Context(cmd)) == {"current": "3 (default)"}
++    assert click.Option(["--k"], default=3).get_help_extra(disabled) == {}
++
++
++def test_disabled_feature_keeps_existing_help(runner):
++    cmd = click.Command("cli")
++    ctx = click.Context(cmd)
++    opt = click.Option(["--p"], default=8000, show_default=True)
++    assert opt.show_effective is None
++    assert opt.get_help_extra(ctx) == {"default": "8000"}
++    assert opt.get_help_record(ctx) == ("--p INTEGER", "[default: 8000]")
++
++    @click.command()
++    @click.option("--port", default=8000, help="Port.")
++    def serve(port):
++        click.echo(f"port={port}")
++
++    result = runner.invoke(serve, ["--help"], terminal_width=80)
++    assert result.output == (
++        "Usage: serve [OPTIONS]\n"
++        "\n"
++        "Options:\n"
++        "  --port INTEGER  Port.\n"
++        "  --help          Show this message and exit.\n"
++    )
++    result = runner.invoke(serve, [])
++    assert result.output == "port=8000\n"
+diff --git a/tests/test_line_completion_protocol.py b/tests/test_line_completion_protocol.py
+new file mode 100644
+index 0000000..e6ce240
+--- /dev/null
++++ b/tests/test_line_completion_protocol.py
+@@ -0,0 +1,313 @@
++import pytest
++
++import click
++from click.shell_completion import CompletionItem
++
++
++def _paint_cli():
++    @click.group()
++    def cli():
++        pass
++
++    @cli.command()
++    @click.option("--color", type=click.Choice(["red", "green", "rose"]))
++    @click.option("--secret", hidden=True)
++    @click.argument("path", type=click.Path())
++    def paint(color, secret, path):
++        pass
++
++    @cli.command()
++    def status():
++        pass
++
++    @cli.command(hidden=True)
++    def secret():
++        pass
++
++    return cli
++
++
++def _echo_cli():
++    @click.command()
++    @click.argument(
++        "words",
++        nargs=-1,
++        shell_complete=lambda ctx, param, incomplete: [f"got:{incomplete}"],
++    )
++    def cli(words):
++        pass
++
++    return cli
++
++
++def _complete(runner, cli, line, point=None, prog_name="tool", **extra):
++    env = {
++        "_TOOL_COMPLETE": "line_complete",
++        "COMP_LINE": line,
++        "COMP_POINT": point,
++    }
++    return runner.invoke(cli, env=env, prog_name=prog_name, **extra)
++
++
++def test_public_names_and_registration():
++    from click.shell_completion import CompletionRequestError
++    from click.shell_completion import get_completion_class
++    from click.shell_completion import LineComplete
++    from click.shell_completion import ShellComplete
++
++    assert get_completion_class("line") is LineComplete
++    assert issubclass(LineComplete, ShellComplete)
++    assert LineComplete.name == "line"
++    assert LineComplete.source_template == (
++        "complete -o default -o nosort -C"
++        " '%(complete_var)s=line_complete %(prog_name)s' %(prog_name)s\n"
++    )
++    assert issubclass(CompletionRequestError, click.ClickException)
++    err = CompletionRequestError("boom")
++    assert err.exit_code == 1
++    assert err.message == "boom"
++
++
++def test_subcommands_completed_at_end_of_line_hidden_excluded(runner):
++    result = _complete(runner, _paint_cli(), "tool ", "5")
++    assert result.exit_code == 0
++    assert result.stdout == "paint\nstatus\n"
++    assert result.stderr == ""
++
++
++def test_option_value_with_equals_prints_bare_value(runner):
++    result = _complete(runner, _paint_cli(), "tool paint --color=r")
++    assert result.exit_code == 0
++    assert result.stdout == "red\nrose\n"
++
++
++@pytest.mark.parametrize("point", ["7", "007"])
++def test_comp_point_truncates_line(runner, point):
++    result = _complete(runner, _paint_cli(), "tool st --help", point)
++    assert result.exit_code == 0
++    assert result.stdout == "status\n"
++
++
++@pytest.mark.parametrize("point", [None, "", "7"])
++def test_unset_or_empty_point_means_end_of_line(runner, point):
++    result = _complete(runner, _paint_cli(), "tool st", point)
++    assert result.exit_code == 0
++    assert result.stdout == "status\n"
++
++
++def test_missing_comp_line_is_reported_before_point(runner):
++    result = _complete(runner, _paint_cli(), None, "abc")
++    assert result.exit_code == 1
++    assert result.stdout == ""
++    assert result.stderr == "Error: COMP_LINE is not set.\n"
++
++
++@pytest.mark.parametrize("point", ["-1", "+3", " 3", "3 ", "1.0", "abc", "0x2"])
++def test_invalid_comp_point_value(runner, point):
++    result = _complete(runner, _paint_cli(), "tool st", point)
++    assert result.exit_code == 1
++    assert result.stdout == ""
++    assert result.stderr == (
++        f"Error: Invalid COMP_POINT value {point!r}:"
++        " expected a non-negative integer.\n"
++    )
++
++
++@pytest.mark.parametrize(
++    ("line", "point", "message"),
++    [
++        ("tool st", "12", "COMP_POINT 12 is past the end of COMP_LINE (7 characters)."),
++        ("t", "0002", "COMP_POINT 2 is past the end of COMP_LINE (1 character)."),
++        ("", "1", "COMP_POINT 1 is past the end of COMP_LINE (0 characters)."),
++    ],
++)
++def test_comp_point_past_end_of_line(runner, line, point, message):
++    result = _complete(runner, _paint_cli(), line, point)
++    assert result.exit_code == 1
++    assert result.stdout == ""
++    assert result.stderr == f"Error: {message}\n"
++
++
++@pytest.mark.parametrize(
++    ("line", "point"),
++    [("", None), ("  ", None), ("to", None), ("tool st", "0"), ("tool st", "2")],
++)
++def test_no_complete_words_prints_nothing(runner, line, point):
++    result = _complete(runner, _paint_cli(), line, point)
++    assert result.exit_code == 0
++    assert result.stdout == ""
++    assert result.stderr == ""
++
++
++def test_program_word_is_not_checked(runner):
++    result = _complete(runner, _paint_cli(), "./bin/other-name st")
++    assert result.exit_code == 0
++    assert result.stdout == "status\n"
++
++
++@pytest.mark.parametrize(
++    ("line", "expected"),
++    [
++        ("tool pa", "got:pa\n"),
++        ("tool pa ", "got:\n"),
++        ("tool pa\t", "got:\n"),
++        ("tool 'my ", "got:my \n"),
++        ("tool my\\ ", "got:my \n"),
++        ("tool ''", "got:\n"),
++        ('tool "a b"', "got:a b\n"),
++    ],
++)
++def test_tokenisation_of_incomplete_word(runner, line, expected):
++    result = _complete(runner, _echo_cli(), line)
++    assert result.exit_code == 0
++    assert result.stdout == expected
++
++
++def test_output_keeps_only_single_line_plain_items(runner):
++    def complete_items(ctx, param, incomplete):
++        return [
++            CompletionItem("alpha", help="first item"),
++            CompletionItem("f", type="file"),
++            CompletionItem("x\ny"),
++            CompletionItem("c\rd"),
++            CompletionItem(42),
++            CompletionItem("d", type="dir"),
++            CompletionItem("it's \"here\"", type="plain"),
++        ]
++
++    @click.command()
++    @click.argument("value", shell_complete=complete_items)
++    def cli(value):
++        pass
++
++    result = _complete(runner, cli, "tool ")
++    assert result.exit_code == 0
++    assert result.stdout == "alpha\n42\nit's \"here\"\n"
++
++
++def test_path_completion_yields_empty_stdout(runner):
++    result = _complete(runner, _paint_cli(), "tool paint 'my ")
++    assert result.exit_code == 0
++    assert result.stdout == ""
++    assert result.stderr == ""
++
++
++def test_option_names_hidden_repeated_and_double_dash(runner):
++    cli = _paint_cli()
++    result = _complete(runner, cli, "tool paint --")
++    assert result.exit_code == 0
++    assert result.stdout == "--color\n--help\n"
++
++    result = _complete(runner, cli, "tool paint --color red --")
++    assert result.exit_code == 0
++    assert result.stdout == "--help\n"
++
++    result = _complete(runner, cli, "tool paint -- --")
++    assert result.exit_code == 0
++    assert result.stdout == ""
++
++
++def test_chained_group_and_forwarded_context_kwargs(runner):
++    @click.group(chain=True)
++    def cli():
++        pass
++
++    @cli.command()
++    def a():
++        pass
++
++    @cli.command()
++    def b():
++        pass
++
++    @cli.command()
++    def c():
++        pass
++
++    result = _complete(runner, cli, "tool a ")
++    assert result.exit_code == 0
++    assert result.stdout == "b\nc\n"
++
++    @click.command()
++    @click.argument(
++        "value",
++        shell_complete=lambda ctx, param, incomplete: [f"{ctx.obj}-{incomplete}"],
++    )
++    def obj_cli(value):
++        pass
++
++    result = _complete(runner, obj_cli, "tool v", obj="X")
++    assert result.exit_code == 0
++    assert result.stdout == "X-v\n"
++
++
++def test_line_source_prints_template(runner):
++    cli = _paint_cli()
++    result = runner.invoke(
++        cli,
++        ["ignored", "args"],
++        env={"_TOOL_COMPLETE": "line_source", "COMP_LINE": None, "COMP_POINT": "x"},
++        prog_name="tool",
++    )
++    assert result.exit_code == 0
++    assert result.stdout == (
++        "complete -o default -o nosort -C '_TOOL_COMPLETE=line_complete tool' tool\n"
++    )
++
++    result = runner.invoke(
++        cli,
++        env={"_MY_VAR": "line_source"},
++        prog_name="my-tool",
++        complete_var="_MY_VAR",
++    )
++    assert result.exit_code == 0
++    assert result.stdout == (
++        "complete -o default -o nosort -C '_MY_VAR=line_complete my-tool' my-tool\n"
++    )
++
++
++def test_unknown_line_instruction_exits_with_1(runner):
++    result = runner.invoke(
++        _paint_cli(),
++        env={"_TOOL_COMPLETE": "line_bogus", "COMP_LINE": "tool "},
++        prog_name="tool",
++    )
++    assert result.exit_code == 1
++    assert result.stdout == ""
++    assert result.stderr == ""
++
++
++def test_request_error_from_custom_shell_class(runner):
++    from click.shell_completion import add_completion_class
++    from click.shell_completion import CompletionRequestError
++    from click.shell_completion import ShellComplete
++
++    class StrictComplete(ShellComplete):
++        name = "strictsh"
++        source_template = "unused"
++
++        def source(self):
++            raise CompletionRequestError("cannot source here")
++
++        def get_completion_args(self):
++            raise CompletionRequestError("bad request")
++
++        def format_completion(self, item):
++            return item.value
++
++    add_completion_class(StrictComplete)
++    cli = _paint_cli()
++
++    result = runner.invoke(
++        cli, env={"_TOOL_COMPLETE": "strictsh_complete"}, prog_name="tool"
++    )
++    assert result.exit_code == 1
++    assert result.stdout == ""
++    assert result.stderr == "Error: bad request\n"
++
++    result = runner.invoke(
++        cli, env={"_TOOL_COMPLETE": "strictsh_source"}, prog_name="tool"
++    )
++    assert result.exit_code == 1
++    assert result.stdout == ""
++    assert result.stderr == "Error: cannot source here\n"

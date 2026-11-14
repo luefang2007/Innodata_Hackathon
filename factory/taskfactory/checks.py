@@ -37,6 +37,12 @@ class Candidate:
     test_patch: str
     test_path: str
     test_content: str
+    extra_test_paths: list = field(default_factory=list)   # composite tasks carry several test files
+    p2p_limit: int = config.MAX_P2P_TESTS
+
+    @property
+    def paths(self) -> list[str]:
+        return [self.test_path, *self.extra_test_paths]
 
 
 @dataclass
@@ -71,6 +77,41 @@ class Report:
 # ------------------------------------------------------------------------------------------------
 # building a candidate from model output
 # ------------------------------------------------------------------------------------------------
+
+def apply_edits(wc: Path, edits: list[dict]) -> tuple[list[str], list[str]]:
+    """Apply search/replace edits under src/click/ in a work copy. Returns (touched paths, errors)."""
+    errors: list[str] = []
+    touched: list[str] = []
+    for i, ed in enumerate(edits):
+        path = ed["path"].strip().lstrip("./").replace("\\", "/")
+        if not path.startswith("src/click/") or not path.endswith(".py"):
+            errors.append(f"edit {i}: path {path!r} is outside src/click/*.py")
+            continue
+        fpath = wc / path
+        search = ed["search"].replace("\r\n", "\n")
+        replace = ed["replace"].replace("\r\n", "\n")
+        if not fpath.exists():
+            if search.strip():
+                errors.append(f"edit {i}: {path} does not exist (use an empty search to create a new module)")
+                continue
+            repo.write_text(fpath, replace)
+        else:
+            text = repo.read_text(fpath)
+            n = text.count(search) if search else 0
+            if n != 1:
+                errors.append(f"edit {i}: search block matches {n} times in {path} (must match exactly once):\n"
+                              f"{search[:400]}")
+                continue
+            repo.write_text(fpath, text.replace(search, replace, 1))
+        if path not in touched:
+            touched.append(path)
+    for path in touched:
+        try:
+            compile(repo.read_text(wc / path), path, "exec")
+        except SyntaxError as exc:
+            errors.append(f"{path}: SyntaxError after edits: {exc}")
+    return touched, errors
+
 
 def build_candidate(edits: list[dict], test_content: str, test_path: str, spec: str) -> tuple[Candidate | None, str]:
     errors = []
@@ -134,7 +175,7 @@ def run_gates(c: Candidate) -> Report:
     r.gate("grounding", bool(existing), "" if existing else "the gold only adds new files; it must extend "
                                                           "existing click modules")
 
-    p2p_candidates = covmap.select_p2p(c.gold_patch, config.BASE_SNAPSHOT)
+    p2p_candidates = covmap.select_p2p(c.gold_patch, config.BASE_SNAPSHOT, limit=c.p2p_limit)
 
     # --- base (feature absent) ---------------------------------------------------------------
     with repo.workcopy(config.BASE_SNAPSHOT) as wc:
@@ -142,7 +183,7 @@ def run_gates(c: Candidate) -> Report:
         if not ok:
             r.gate("feature_absent", False, f"test patch does not apply: {err}")
             return r
-        st_base, _ = run_pytest(wc, [c.test_path, *p2p_candidates])
+        st_base, _ = run_pytest(wc, [*c.paths, *p2p_candidates])
 
     # --- gold applied --------------------------------------------------------------------------
     with repo.workcopy(config.BASE_SNAPSHOT) as wc:
@@ -151,8 +192,8 @@ def run_gates(c: Candidate) -> Report:
             r.gate("gold_tests", False, f"gold patch does not apply: {err}")
             return r
         repo.apply_patch(wc, c.test_patch)
-        st_gold, log_gold = run_pytest(wc, [c.test_path, *p2p_candidates])
-        new_tests = sorted(t for t in st_gold if t.startswith(c.test_path))
+        st_gold, log_gold = run_pytest(wc, [*c.paths, *p2p_candidates])
+        new_tests = sorted(t for t in st_gold if any(t.startswith(p) for p in c.paths))
         bad = [t for t in new_tests if st_gold[t] != "PASSED"]
         if not new_tests:
             r.gate("gold_tests", False, "no tests were collected from the new test file:\n" + tail(log_gold, 40))
@@ -193,7 +234,7 @@ def run_gates(c: Candidate) -> Report:
     if config.MAIN_SNAPSHOT.exists() and f2p:
         with repo.workcopy(config.MAIN_SNAPSHOT) as wc:
             ok, err = repo.apply_patch(wc, c.test_patch)
-            st_main, _ = run_pytest(wc, [c.test_path]) if ok else ({}, err)
+            st_main, _ = run_pytest(wc, c.paths) if ok else ({}, err)
         on_main = [t for t in f2p if st_main.get(t) == "PASSED"]
         r.gate("novelty", len(on_main) < len(f2p),
                f"{len(on_main)}/{len(f2p)} feature tests already pass on upstream main")
@@ -293,7 +334,7 @@ def mutation_check(wc: Path, c: Candidate, f2p: list[str]) -> dict:
             continue
         repo.write_text(fpath, new_text)
         try:
-            st, _ = run_pytest(wc, [c.test_path], extra=["-x", "-q"], timeout=300)
+            st, _ = run_pytest(wc, c.paths, extra=["-x", "-q"], timeout=300)
         finally:
             repo.write_text(fpath, original_text)
         tried += 1

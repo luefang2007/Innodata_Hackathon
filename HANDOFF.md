@@ -87,6 +87,24 @@ cp .env.example .env                                            # add OPENROUTER
 Output goes to `submission/`: `generated_tasks/`, `pipeline_run.json`, and `runs/` with every model
 call and every check report.
 
+## Status update (after the first run)
+
+- **Run 1:** 5/5 single-feature tasks passed all checks, for $10.95 on OpenRouter. They're in
+  `submission/generated_tasks/`.
+- **Difficulty probe:** Haiku 5.5, one-shot, cost $1.80. It solved 14 of 15 attempts, so single-feature
+  tasks are too easy. The specs are precise enough to transcribe.
+- **No more API spend** (team decision). Difficulty is now raised with the new `compose` stage, which
+  makes no model calls.
+  - It builds span-3 tasks: three verified features in one change, with every gate re-run on the
+    combination.
+  - Result: 5/5 composites are valid and pass `check_structure.py`. They're in
+    `submission/generated_tasks_composite/`.
+  - Their cost attribution is in `submission/pipeline_run_generated_tasks_composite.json`.
+  - See `factory/VARIATION.md` for how combinations are chosen. One pair of features conflicts in
+    `core.py`, and the gates caught it.
+- **Not measured:** composite difficulty. That needs the Harbor benchmark, or a probe, which would
+  spend API budget.
+
 ## Still to do
 
 1. Put the key in `factory/.env` and run `generate`.

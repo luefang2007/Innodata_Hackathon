@@ -1,0 +1,15 @@
+{
+ "applied": true,
+ "reward": 1.0,
+ "resolved": true,
+ "f2p": "27/27",
+ "p2p": "80/80",
+ "touched": [
+  "src/click/core.py",
+  "src/click/parser.py",
+  "src/click/decorators.py",
+  "src/click/__init__.py"
+ ],
+ "rollout": 2,
+ "tries": 1
+}

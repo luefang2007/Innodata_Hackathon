@@ -22,6 +22,7 @@ import anthropic
 from . import config
 
 _client_lock = threading.Lock()
+_telemetry_lock = threading.Lock()
 _client: anthropic.Anthropic | None = None
 
 
@@ -61,19 +62,22 @@ def budget_state() -> tuple[float, float]:
         return _spent, config.BUDGET_USD
 
 
-def _reserve(tag: str) -> None:
+def _reserve(tag: str, amount: float | None = None) -> float:
     global _reserved
+    amount = config.RESERVE_PER_CALL_USD if amount is None else amount
     with _budget_lock:
-        if _spent + _reserved + config.RESERVE_PER_CALL_USD > config.BUDGET_USD:
+        if _spent + _reserved + amount > config.BUDGET_USD:
             raise BudgetExceeded(f"budget cap ${config.BUDGET_USD:.2f}: spent ${_spent:.2f} + in flight "
                                  f"${_reserved:.2f}; not starting '{tag}'")
-        _reserved += config.RESERVE_PER_CALL_USD
+        _reserved += amount
+    return amount
 
 
-def _settle(cost: float) -> None:
+def _settle(cost: float, amount: float | None = None) -> None:
     global _spent, _reserved
+    amount = config.RESERVE_PER_CALL_USD if amount is None else amount
     with _budget_lock:
-        _reserved = max(0.0, _reserved - config.RESERVE_PER_CALL_USD)
+        _reserved = max(0.0, _reserved - amount)
         _spent += cost
 
 
@@ -81,9 +85,9 @@ def _settle(cost: float) -> None:
 # response cache: an identical request (model, system, schema, prompt) is answered from disk
 # ------------------------------------------------------------------------------------------------
 
-def _cache_key(system: list[dict], schema: dict, user_text: str) -> str:
+def _cache_key(system: list[dict], schema: dict, user_text: str, model: str | None = None) -> str:
     import hashlib
-    blob = json.dumps([config.MODEL, config.EFFORT, system, schema, user_text], sort_keys=True)
+    blob = json.dumps([model or config.MODEL, config.EFFORT, system, schema, user_text], sort_keys=True)
     return hashlib.sha256(blob.encode("utf-8")).hexdigest()[:32]
 
 
@@ -114,6 +118,10 @@ class Telemetry:
         if cost is None:
             p = config.price_for(self.model)
             cost = (inp * p["in"] + out * p["out"] + cr * p["cache_read"] + cw * p["cache_write"]) / 1e6
+        with _telemetry_lock:
+            self._add(tag, inp, out, cr, cw, seconds, cost)
+
+    def _add(self, tag, inp, out, cr, cw, seconds, cost) -> None:
         self.model_calls += 1
         self.n_input_tokens += inp
         self.n_output_tokens += out
@@ -190,12 +198,13 @@ def _or_usage(payload: dict) -> tuple[int, int, int, int, float | None]:
     return max(prompt - cr - cw, 0), out, cr, cw, (float(cost) if cost is not None else None)
 
 
-def _or_body(system: list[dict], user_text: str, max_tokens: int) -> dict:
+def _or_body(system: list[dict], user_text: str, max_tokens: int, model: str | None = None,
+             effort: str | None = None) -> dict:
     return {
-        "model": config.MODEL,
+        "model": model or config.MODEL,
         "messages": [{"role": "system", "content": system}, {"role": "user", "content": user_text}],
         "max_tokens": max_tokens,
-        "reasoning": {"effort": config.EFFORT},
+        "reasoning": {"effort": effort or config.EFFORT},
         "usage": {"include": True},
         "provider": {"order": ["anthropic"], "allow_fallbacks": True},
     }
@@ -258,8 +267,11 @@ def prewarm(system: list[dict], schema: dict, telemetry: Telemetry, log_dir: Pat
 
 
 def call_json(system: list[dict], user_text: str, schema: dict, telemetry: Telemetry,
-              log_dir: Path, tag: str) -> dict:
-    if config.RESPONSE_CACHE:
+              log_dir: Path, tag: str, model: str | None = None, effort: str | None = None,
+              reserve: float | None = None, use_cache: bool = True) -> dict:
+    if model or effort:
+        return _call_with_model(system, user_text, schema, telemetry, log_dir, tag, model, effort, reserve)
+    if config.RESPONSE_CACHE and use_cache:
         cp = _cache_path(_cache_key(system, schema, user_text))
         if cp.exists():
             hit = json.loads(cp.read_text(encoding="utf-8"))
@@ -279,6 +291,38 @@ def call_json(system: list[dict], user_text: str, schema: dict, telemetry: Telem
         return _call_json_uncached(system, user_text, schema, telemetry, log_dir, tag, t0)
     finally:
         _settle(telemetry.calls[-1]["cost_usd"] if telemetry.calls and telemetry.calls[-1]["tag"] == tag else 0.0)
+
+
+def _call_with_model(system, user_text, schema, telemetry, log_dir, tag, model, effort, reserve) -> dict:
+    """Uncached call with a different model/effort (used by the difficulty probe; OpenRouter or Anthropic)."""
+    amount = _reserve(tag, reserve)
+    cost = 0.0
+    try:
+        if config.BACKEND == "openrouter":
+            t0 = time.time()
+            body = _or_body(system, user_text, config.MAX_OUTPUT_TOKENS, model, effort)
+            body["response_format"] = {"type": "json_schema",
+                                       "json_schema": {"name": "answer", "strict": True, "schema": schema}}
+            payload = _or_request("/chat/completions", body)
+            inp, out, cr, cw, cost = _or_usage(payload)
+            telemetry.add_counts(tag, inp, out, cr, cw, time.time() - t0, cost)
+            cost = telemetry.calls[-1]["cost_usd"]
+            choice = (payload.get("choices") or [{}])[0]
+            text = (choice.get("message") or {}).get("content") or ""
+            stop = choice.get("finish_reason")
+            log_dir.mkdir(parents=True, exist_ok=True)
+            (log_dir / f"{tag}.json").write_text(json.dumps({
+                "tag": tag, "backend": "openrouter", "model": payload.get("model"), "stop_reason": stop,
+                "usage": payload.get("usage"), "user_prompt": user_text, "response_text": text}, indent=1),
+                encoding="utf-8")
+            if stop == "length":
+                raise LLMError("response truncated at max_tokens")
+            return json.loads(text)
+        raise LLMError("the probe currently needs the OpenRouter backend")
+    except json.JSONDecodeError as exc:
+        raise LLMError(f"response was not valid JSON: {exc}") from exc
+    finally:
+        _settle(cost, amount)
 
 
 def _call_json_uncached(system: list[dict], user_text: str, schema: dict, telemetry: Telemetry,
