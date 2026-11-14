@@ -1,0 +1,755 @@
+diff --git a/src/click/__init__.py b/src/click/__init__.py
+index a34ab02..d274d89 100644
+--- a/src/click/__init__.py
++++ b/src/click/__init__.py
+@@ -15,6 +15,7 @@ from .core import Group as Group
+ from .core import Option as Option
+ from .core import Parameter as Parameter
+ from .core import ParameterSource as ParameterSource
++from .core import Shorthand as Shorthand
+ from .decorators import argument as argument
+ from .decorators import command as command
+ from .decorators import confirmation_option as confirmation_option
+@@ -26,6 +27,7 @@ from .decorators import option as option
+ from .decorators import pass_context as pass_context
+ from .decorators import pass_obj as pass_obj
+ from .decorators import password_option as password_option
++from .decorators import shorthand as shorthand
+ from .decorators import version_option as version_option
+ from .exceptions import Abort as Abort
+ from .exceptions import BadArgumentUsage as BadArgumentUsage
+diff --git a/src/click/core.py b/src/click/core.py
+index e4b6b57..62e0a63 100644
+--- a/src/click/core.py
++++ b/src/click/core.py
+@@ -5,6 +5,7 @@ import enum
+ import errno
+ import inspect
+ import os
++import shlex
+ import sys
+ import typing as t
+ from abc import ABC
+@@ -35,6 +36,7 @@ from .formatting import HelpFormatter
+ from .formatting import join_options
+ from .globals import pop_context
+ from .globals import push_context
++from .parser import _normalize_opt
+ from .parser import _OptionParser
+ from .parser import _split_opt
+ from .termui import confirm
+@@ -957,6 +959,83 @@ class Context:
+         return self._parameter_source.get(name)
+ 
+ 
++def _is_valid_shorthand_name(name: object) -> bool:
++    """Check that a shorthand name has an option prefix followed by at
++    least one character, and contains no ``=`` and no whitespace.
++    """
++    if not isinstance(name, str):
++        return False
++
++    prefix, rest = _split_opt(name)
++
++    if not prefix or not rest:
++        return False
++
++    return "=" not in name and not any(ch.isspace() for ch in name)
++
++
++class Shorthand:
++    """A token that the option parser replaces in place by a fixed
++    sequence of tokens, which are then processed as if they had been
++    typed at that position.
++
++    :param name: The shorthand token, with an option prefix, like ``-q``.
++    :param expansion: The tokens the shorthand stands for.
++    :param help: Help text shown in the ``Shorthands`` help section.
++    :param hidden: Hide the shorthand from the help page.
++
++    .. versionadded:: 8.6.0
++    """
++
++    name: str
++    expansion: tuple[str, ...]
++    help: str | None
++    hidden: bool
++
++    def __init__(
++        self,
++        name: str,
++        expansion: cabc.Sequence[str],
++        help: str | None = None,
++        hidden: bool = False,
++    ) -> None:
++        if not _is_valid_shorthand_name(name):
++            raise ValueError(f"Invalid shorthand name {name!r}.")
++
++        if isinstance(expansion, str):
++            raise TypeError(
++                "Shorthand expansion must be a sequence of strings, not a"
++                " single string."
++            )
++
++        tokens = tuple(expansion)
++
++        if not all(isinstance(token, str) for token in tokens):
++            raise TypeError("Shorthand expansion tokens must be strings.")
++
++        if not tokens:
++            raise ValueError(f"Shorthand {name!r} must expand to at least one token.")
++
++        self.name = name
++        self.expansion = tokens
++        self.help = help
++        self.hidden = hidden
++
++    def to_info_dict(self) -> dict[str, t.Any]:
++        """Gather information that could be useful for a tool generating
++        user-facing documentation.
++        """
++        return {
++            "name": self.name,
++            "expansion": list(self.expansion),
++            "help": self.help,
++            "hidden": self.hidden,
++        }
++
++    def __repr__(self) -> str:
++        return f"<{self.__class__.__name__} {self.name}>"
++
++
+ class Command:
+     """Commands are the basic building block of command line interfaces in
+     Click.  A basic command handles command line parsing and might dispatch
+@@ -1032,6 +1111,7 @@ class Command:
+     no_args_is_help: bool
+     hidden: bool
+     deprecated: bool | str
++    shorthands: list[Shorthand]
+ 
+     def __init__(
+         self,
+@@ -1047,6 +1127,7 @@ class Command:
+         no_args_is_help: bool = False,
+         hidden: bool = False,
+         deprecated: bool | str = False,
++        shorthands: cabc.Sequence[Shorthand] | None = None,
+     ) -> None:
+         #: the name the command thinks it has.  Upon registering a command
+         #: on a :class:`Group` the group will default the command name
+@@ -1077,7 +1158,23 @@ class Command:
+         self.hidden = hidden
+         self.deprecated = deprecated
+ 
++        shorthand_list = list(shorthands) if shorthands is not None else []
++
++        if not all(isinstance(item, Shorthand) for item in shorthand_list):
++            raise TypeError("'shorthands' must contain only Shorthand instances.")
++
++        #: Shorthand tokens expanded by the option parser.
++        self.shorthands = shorthand_list
++
+     def to_info_dict(self, ctx: Context) -> dict[str, t.Any]:
++        info_dict = self._base_info_dict(ctx)
++
++        if self.shorthands:
++            info_dict["shorthands"] = [sh.to_info_dict() for sh in self.shorthands]
++
++        return info_dict
++
++    def _base_info_dict(self, ctx: Context) -> dict[str, t.Any]:
+         return {
+             "name": self.name,
+             "params": [param.to_info_dict() for param in self.get_params(ctx)],
+@@ -1188,6 +1285,8 @@ class Command:
+         for param in self.params:
+             for name in (*param.opts, *param.secondary_opts):
+                 all_names.pop(name, None)
++        for sh in self.shorthands:
++            all_names.pop(sh.name, None)
+         return list(all_names)
+ 
+     def get_help_option(self, ctx: Context) -> Option | None:
+@@ -1227,8 +1326,26 @@ class Command:
+     def make_parser(self, ctx: Context) -> _OptionParser:
+         """Creates the underlying option parser for this command."""
+         parser = _OptionParser(ctx)
+-        for param in self.get_params(ctx):
++        params = self.get_params(ctx)
++        for param in params:
+             param.add_to_parser(parser, ctx)
++
++        if self.shorthands:
++            option_names = {
++                _normalize_opt(name, ctx)
++                for param in params
++                for name in (*param.opts, *param.secondary_opts)
++            }
++
++            for sh in self.shorthands:
++                if _normalize_opt(sh.name, ctx) in option_names:
++                    raise ValueError(
++                        f"Shorthand {sh.name!r} conflicts with an option of the"
++                        " same name."
++                    )
++
++                parser.add_shorthand(sh.name, sh.expansion)
++
+         return parser
+ 
+     def get_help(self, ctx: Context) -> str:
+@@ -1305,6 +1422,28 @@ class Command:
+             with formatter.section(_("Options")):
+                 formatter.write_dl(opts)
+ 
++        self.format_shorthands(ctx, formatter)
++
++    def format_shorthands(self, ctx: Context, formatter: HelpFormatter) -> None:
++        """Writes the visible shorthands into the formatter, if any.
++
++        .. versionadded:: 8.6.0
++        """
++        rows = []
++
++        for sh in self.shorthands:
++            if sh.hidden:
++                continue
++
++            extra = _("[expands to: {tokens}]").format(
++                tokens=shlex.join(sh.expansion)
++            )
++            rows.append((sh.name, f"{sh.help}  {extra}" if sh.help else extra))
++
++        if rows:
++            with formatter.section(_("Shorthands")):
++                formatter.write_dl(rows)
++
+     def format_arguments(self, ctx: Context, formatter: HelpFormatter) -> None:
+         """Writes all arguments into the formatter, if at least one is documented.
+ 
+@@ -1689,8 +1828,17 @@ class Group(Command):
+         all the commands. If ``invoke_without_command`` is enabled, the value
+         will be the value returned by the group's callback, or an empty list if
+         ``chain`` is enabled.
++    :param before_subcommand: A hook called as ``hook(sub_ctx)`` right before
++        each direct subcommand is invoked. Registered before any hook added
++        with :meth:`before_subcommand`.
++    :param after_subcommand: A hook called as ``hook(sub_ctx, result)`` right
++        after each direct subcommand returns normally. Registered before any
++        hook added with :meth:`after_subcommand`.
+     :param kwargs: Other arguments passed to :class:`Command`.
+ 
++    .. versionchanged:: 8.6.0
++        Added the ``before_subcommand`` and ``after_subcommand`` parameters.
++
+     .. versionchanged:: 8.0
+         The ``commands`` argument can be a list of command objects.
+ 
+@@ -1726,6 +1874,8 @@ class Group(Command):
+     subcommand_metavar: str
+     chain: bool
+     _result_callback: t.Callable[..., t.Any] | None
++    _before_subcommand_hooks: list[t.Callable[[Context], t.Any]]
++    _after_subcommand_hooks: list[t.Callable[[Context, t.Any], t.Any]]
+ 
+     def __init__(
+         self,
+@@ -1738,6 +1888,8 @@ class Group(Command):
+         subcommand_metavar: str | None = None,
+         chain: bool = False,
+         result_callback: t.Callable[..., t.Any] | None = None,
++        before_subcommand: t.Callable[[Context], t.Any] | None = None,
++        after_subcommand: t.Callable[[Context, t.Any], t.Any] | None = None,
+         **kwargs: t.Any,
+     ) -> None:
+         super().__init__(name, **kwargs)
+@@ -1774,6 +1926,15 @@ class Group(Command):
+         # The result callback that is stored. This can be set or
+         # overridden with the :func:`result_callback` decorator.
+         self._result_callback = result_callback
++        # Hooks run around each direct subcommand invocation.
++        self._before_subcommand_hooks = []
++        self._after_subcommand_hooks = []
++
++        if before_subcommand is not None:
++            self._before_subcommand_hooks.append(before_subcommand)
++
++        if after_subcommand is not None:
++            self._after_subcommand_hooks.append(after_subcommand)
+ 
+         if self.chain:
+             for param in self.params:
+@@ -1956,6 +2117,45 @@ class Group(Command):
+ 
+         return decorator
+ 
++    def before_subcommand(self, f: F) -> F:
++        """Register a hook called as ``f(sub_ctx)`` immediately before each
++        direct subcommand of this group is invoked. Hooks run in registration
++        order. Returns ``f`` unchanged so it can be used as a decorator.
++
++        .. versionadded:: 8.6.0
++        """
++        self._before_subcommand_hooks.append(f)
++        return f
++
++    def after_subcommand(self, f: F) -> F:
++        """Register a hook called as ``f(sub_ctx, result)`` after each direct
++        subcommand of this group returns normally. Hooks run in reverse
++        registration order. Returns ``f`` unchanged so it can be used as a
++        decorator.
++
++        .. versionadded:: 8.6.0
++        """
++        self._after_subcommand_hooks.append(f)
++        return f
++
++    def _invoke_subcommand(self, sub_ctx: Context) -> t.Any:
++        """Invoke a direct subcommand, running the registered lifecycle hooks
++        around it. Must be called while ``sub_ctx`` is entered.
++
++        :meta private:
++        """
++        with augment_usage_errors(sub_ctx):
++            for hook in self._before_subcommand_hooks:
++                hook(sub_ctx)
++
++        rv = sub_ctx.command.invoke(sub_ctx)
++
++        with augment_usage_errors(sub_ctx):
++            for hook in reversed(self._after_subcommand_hooks):
++                hook(sub_ctx, rv)
++
++        return rv
++
+     def get_command(self, ctx: Context, cmd_name: str) -> Command | None:
+         """Given a context and a command name, this returns a :class:`Command`
+         object if it exists or returns ``None``.
+@@ -2051,7 +2251,7 @@ class Group(Command):
+                 super().invoke(ctx)
+                 sub_ctx = cmd.make_context(cmd_name, args, parent=ctx)
+                 with sub_ctx:
+-                    return _process_result(sub_ctx.command.invoke(sub_ctx))
++                    return _process_result(self._invoke_subcommand(sub_ctx))
+ 
+         # In chain mode we create the contexts step by step, but after the
+         # base command has been invoked.  Because at that point we do not
+@@ -2082,7 +2282,7 @@ class Group(Command):
+             rv = []
+             for sub_ctx in contexts:
+                 with sub_ctx:
+-                    rv.append(sub_ctx.command.invoke(sub_ctx))
++                    rv.append(self._invoke_subcommand(sub_ctx))
+             return _process_result(rv)
+ 
+     def resolve_command(
+@@ -2967,6 +3167,7 @@ class Option(Parameter):
+     prompt_required: bool
+     hide_input: bool
+     hidden: bool
++    prompt_numbered: bool
+ 
+     _flag_needs_value: bool
+     is_flag: bool
+@@ -2999,6 +3200,7 @@ class Option(Parameter):
+         show_choices: bool = True,
+         show_envvar: bool = False,
+         deprecated: bool | str = False,
++        prompt_numbered: bool = False,
+         **attrs: t.Any,
+     ) -> None:
+         super().__init__(
+@@ -3054,6 +3256,19 @@ class Option(Parameter):
+         self.show_choices = show_choices
+         self.show_envvar = show_envvar
+ 
++        #: Show a numbered menu of the choices when prompting.
++        self.prompt_numbered = prompt_numbered
++
++        if prompt_numbered:
++            if not isinstance(self.type, types.Choice):
++                raise TypeError("'prompt_numbered' requires a 'click.Choice' type.")
++
++            if self.multiple or self.nargs != 1:
++                raise TypeError(
++                    "'prompt_numbered' cannot be used with 'multiple=True' or"
++                    " 'nargs' other than 1."
++                )
++
+         # Phase 5: validate. Raises on illegal kwarg combinations.
+         self._validate(prompt, deprecated)
+ 
+@@ -3549,6 +3764,7 @@ class Option(Parameter):
+             show_choices=self.show_choices,
+             confirmation_prompt=self.confirmation_prompt,
+             value_proc=lambda x: self.process_value(ctx, x),
++            numbered=self.prompt_numbered,
+             **prompt_kwargs,
+         )
+ 
+diff --git a/src/click/decorators.py b/src/click/decorators.py
+index 0c7b6c4..38f491e 100644
+--- a/src/click/decorators.py
++++ b/src/click/decorators.py
+@@ -11,6 +11,7 @@ from .core import Context
+ from .core import Group
+ from .core import Option
+ from .core import Parameter
++from .core import Shorthand
+ from .globals import get_current_context
+ from .utils import echo
+ 
+@@ -229,6 +230,17 @@ def command(
+             del f.__click_params__  # type: ignore
+             params.extend(reversed(decorator_params))
+ 
++        attr_shorthands = attrs.pop("shorthands", None)
++        decorator_shorthands = getattr(f, "__click_shorthands__", None)
++
++        if decorator_shorthands is not None:
++            del f.__click_shorthands__  # type: ignore
++
++        if attr_shorthands is not None or decorator_shorthands:
++            shorthands = list(attr_shorthands or [])
++            shorthands.extend(reversed(decorator_shorthands or []))
++            attrs["shorthands"] = shorthands
++
+         if attrs.get("help") is None:
+             attrs["help"] = f.__doc__
+ 
+@@ -321,6 +333,35 @@ def _param_memo(f: t.Callable[..., t.Any], param: Parameter) -> None:
+         f.__click_params__.append(param)  # type: ignore
+ 
+ 
++def shorthand(
++    name: str, *expansion: str, help: str | None = None, hidden: bool = False
++) -> t.Callable[[FC], FC]:
++    """Attaches a :class:`Shorthand` to the command. The option parser
++    replaces the ``name`` token by the ``expansion`` tokens.
++
++    :param name: The shorthand token, like ``-q``.
++    :param expansion: The tokens the shorthand stands for.
++    :param help: Help text shown in the ``Shorthands`` help section.
++    :param hidden: Hide the shorthand from the help page.
++
++    .. versionadded:: 8.6.0
++    """
++    sh = Shorthand(name, expansion, help=help, hidden=hidden)
++
++    def decorator(f: FC) -> FC:
++        if isinstance(f, Command):
++            f.shorthands.append(sh)
++        else:
++            if not hasattr(f, "__click_shorthands__"):
++                f.__click_shorthands__ = []  # type: ignore
++
++            f.__click_shorthands__.append(sh)  # type: ignore
++
++        return f
++
++    return decorator
++
++
+ def argument(
+     *param_decls: str, cls: type[Argument] | None = None, **attrs: t.Any
+ ) -> t.Callable[[FC], FC]:
+diff --git a/src/click/parser.py b/src/click/parser.py
+index 4fcbf7c..4ec92d9 100644
+--- a/src/click/parser.py
++++ b/src/click/parser.py
+@@ -124,6 +124,24 @@ def _normalize_opt(opt: str, ctx: Context | None) -> str:
+     return f"{prefix}{ctx.token_normalize_func(opt)}"
+ 
+ 
++class _ExpandedToken(str):
++    """Marks a token that was produced by a shorthand expansion, so the
++    parser never expands it again. It is converted back to a plain
++    :class:`str` before it leaves the parser.
++    """
++
++    __slots__ = ()
++
++
++def _plain_token(token: t.Any) -> t.Any:
++    """Convert an expansion marker back to a plain string. Any other
++    value is returned unchanged.
++    """
++    if isinstance(token, _ExpandedToken):
++        return str(token)
++    return token
++
++
+ class _Option:
+     def __init__(
+         self,
+@@ -261,6 +279,7 @@ class _OptionParser:
+         self._long_opt: dict[str, _Option] = {}
+         self._opt_prefixes = {"-", "--"}
+         self._args: list[_Argument] = []
++        self._shorthands: dict[str, tuple[str, ...]] = {}
+ 
+     def add_option(
+         self,
+@@ -295,6 +314,41 @@ class _OptionParser:
+         """
+         self._args.append(_Argument(obj, dest=dest, nargs=nargs))
+ 
++    def add_shorthand(self, name: str, expansion: cabc.Sequence[str]) -> None:
++        """Register a shorthand token. When the parser examines a token
++        equal to ``name`` (after normalization) as a possible option, it
++        replaces it in place by ``expansion``.
++
++        The shorthand's prefix is added to the recognized option prefixes.
++
++        :raises ValueError: A shorthand with the same normalized name is
++            already registered.
++        """
++        key = _normalize_opt(name, self.ctx)
++
++        if key in self._shorthands:
++            raise ValueError(f"Shorthand {name!r} is defined more than once.")
++
++        self._shorthands[key] = tuple(expansion)
++        prefix = _split_opt(name)[0]
++        self._opt_prefixes.add(prefix[0])
++        self._opt_prefixes.add(prefix)
++
++    def _expand_shorthand(self, arg: str, state: _ParsingState) -> bool:
++        """Replace ``arg`` by its shorthand expansion at the front of the
++        remaining arguments. Returns ``True`` if ``arg`` was a shorthand.
++        """
++        if not self._shorthands or "=" in arg:
++            return False
++
++        expansion = self._shorthands.get(_normalize_opt(arg, self.ctx))
++
++        if expansion is None:
++            return False
++
++        state.rargs[:0] = [_ExpandedToken(token) for token in expansion]
++        return True
++
+     def parse_args(
+         self, args: list[str]
+     ) -> tuple[dict[str, t.Any], list[str], list[CoreParameter]]:
+@@ -315,7 +369,8 @@ class _OptionParser:
+ 
+     def _process_args_for_args(self, state: _ParsingState) -> None:
+         pargs, args = _unpack_args(
+-            state.largs + state.rargs, [x.nargs for x in self._args]
++            [_plain_token(x) for x in state.largs + state.rargs],
++            [x.nargs for x in self._args],
+         )
+ 
+         for idx, arg in enumerate(self._args):
+@@ -326,13 +381,19 @@ class _OptionParser:
+ 
+     def _process_args_for_options(self, state: _ParsingState) -> None:
+         while state.rargs:
+-            arg = state.rargs.pop(0)
++            token = state.rargs.pop(0)
++            # Tokens produced by a shorthand expansion are never expanded again.
++            expanded = isinstance(token, _ExpandedToken)
++            arg = _plain_token(token)
+             arglen = len(arg)
+             # Double dashes always handled explicitly regardless of what
+             # prefixes are valid.
+             if arg == "--":
+                 return
+             elif arg[:1] in self._opt_prefixes and arglen > 1:
++                if not expanded and self._expand_shorthand(arg, state):
++                    continue
++
+                 self._process_opts(arg, state)
+             elif self.allow_interspersed_args:
+                 state.largs.append(arg)
+@@ -460,9 +521,9 @@ class _OptionParser:
+                 # use it as the value if omitting the value is allowed.
+                 value = FLAG_NEEDS_VALUE
+             else:
+-                value = state.rargs.pop(0)
++                value = _plain_token(state.rargs.pop(0))
+         else:
+-            value = tuple(state.rargs[:nargs])
++            value = tuple(_plain_token(x) for x in state.rargs[:nargs])
+             del state.rargs[:nargs]
+ 
+         return value
+diff --git a/src/click/termui.py b/src/click/termui.py
+index 8fe0085..13fcdea 100644
+--- a/src/click/termui.py
++++ b/src/click/termui.py
+@@ -1,6 +1,7 @@
+ from __future__ import annotations
+ 
+ import collections.abc as cabc
++import enum
+ import inspect
+ import io
+ import itertools
+@@ -125,6 +126,31 @@ def _build_prompt(
+     return f"{prompt}{default_preview}{suffix}"
+ 
+ 
++_NUMBERED_INPUT_RE = re.compile(r"[0-9]+")
++
++
++def _numbered_choice_label(choice: object) -> str:
++    """Label shown for a choice in a numbered prompt menu."""
++    if isinstance(choice, enum.Enum):
++        return choice.name
++
++    return str(choice)
++
++
++def _numbered_default_preview(default: object, choices: cabc.Sequence[t.Any]) -> object:
++    """Return the 1-based menu number matching ``default``, or the default
++    itself if no choice matches.
++    """
++    for index, choice in enumerate(choices, 1):
++        if default == choice:
++            return index
++
++        if isinstance(default, str) and default == _numbered_choice_label(choice):
++            return index
++
++    return default
++
++
+ def _format_default(default: V) -> V | str:
+     if isinstance(default, (io.IOBase, _LazyFile)):
+         name = getattr(default, "name", None)
+@@ -147,6 +173,7 @@ def prompt(
+     show_default: bool | str = True,
+     err: bool = False,
+     show_choices: bool = True,
++    numbered: bool = False,
+ ) -> str: ...
+ 
+ 
+@@ -162,6 +189,7 @@ def prompt(
+     show_default: bool | str = True,
+     err: bool = False,
+     show_choices: bool = True,
++    numbered: bool = False,
+ ) -> V: ...
+ 
+ 
+@@ -176,6 +204,7 @@ def prompt(
+     show_default: bool | str = True,
+     err: bool = False,
+     show_choices: bool = True,
++    numbered: bool = False,
+ ) -> V:
+     """Prompts a user for input.  This is a convenience function that can
+     be used to prompt a user for input later.
+@@ -205,6 +234,12 @@ def prompt(
+                          For example if type is a Choice of either day or week,
+                          show_choices is true and text is "Group by" then the
+                          prompt will be "Group by (day, week): ".
++    :param numbered: Show a numbered menu of the choices of a
++        :class:`Choice` type and accept the menu number as input, in
++        addition to the choice name.
++
++    .. versionchanged:: 8.6.0
++        Added the ``numbered`` parameter.
+ 
+     .. versionchanged:: 8.5.0
+         Generically typed: the return type is narrowed by ``type``,
+@@ -244,12 +279,48 @@ def prompt(
+                 echo(None, err=err)
+             raise Abort() from None
+ 
++    numbered_choices: tuple[t.Any, ...] = ()
++
++    if numbered:
++        if not isinstance(type, Choice):
++            raise TypeError("'numbered' requires a 'click.Choice' type.")
++
++        numbered_choices = tuple(type.choices)
++
++        if not numbered_choices:
++            raise ValueError("'numbered' requires at least one choice.")
++
++    choice_count = len(numbered_choices)
++
+     if value_proc is None:
+         value_proc = convert_type(type, default)
+ 
+-    prompt = _build_prompt(
+-        text, prompt_suffix, show_default, default, show_choices, type
+-    )
++    if numbered:
++        width = len(str(choice_count))
++
++        for index, choice in enumerate(numbered_choices, 1):
++            echo(
++                f"  {index:>{width}}) {_numbered_choice_label(choice)}",
++                err=err,
++            )
++
++        preview: object | None = default
++
++        if show_default and not isinstance(show_default, str) and default is not None:
++            preview = _numbered_default_preview(default, numbered_choices)
++
++        prompt = _build_prompt(
++            f"{text} [1-{choice_count}]",
++            prompt_suffix,
++            show_default,
++            preview,
++            False,
++            None,
++        )
++    else:
++        prompt = _build_prompt(
++            text, prompt_suffix, show_default, default, show_choices, type
++        )
+ 
+     if confirmation_prompt:
+         if confirmation_prompt is True:
+@@ -258,6 +329,7 @@ def prompt(
+         confirmation_prompt = _build_prompt(confirmation_prompt, prompt_suffix)
+ 
+     while True:
++        typed = True
+         while True:
+             value = prompt_func(prompt)
+             if value:
+@@ -267,9 +339,34 @@ def prompt(
+                 # value_proc like typed input, so the annotation is only
+                 # accurate for typed input.
+                 value = t.cast("str", default)
++                typed = False
+                 break
++
++        to_convert: t.Any = value
++
++        if (
++            numbered
++            and typed
++            and isinstance(value, str)
++            and _NUMBERED_INPUT_RE.fullmatch(value)
++        ):
++            selection = int(value)
++
++            if 1 <= selection <= choice_count:
++                to_convert = numbered_choices[selection - 1]
++            else:
++                shown = _HIDDEN_INPUT_MASK if hide_input else f"'{value}'"
++                echo(
++                    _(
++                        "Error: {input} is not a valid selection."
++                        " Enter a number from 1 to {count}."
++                    ).format(input=shown, count=choice_count),
++                    err=err,
++                )
++                continue
++
+         try:
+-            result = value_proc(value)
++            result = value_proc(to_convert)
+         except UsageError as e:
+             message = _mask_hidden_input(e.message, value) if hide_input else e.message
+             echo(_("Error: {message}").format(message=message), err=err)

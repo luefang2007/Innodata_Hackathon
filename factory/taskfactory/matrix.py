@@ -56,6 +56,42 @@ SHAPES = {
            "contracts, validation of misuse and introspection (e.g. to_info_dict)",
 }
 
+# Third axis, used when the solver jury finds a task too easy: where the difficulty should come from.
+# More rules multiply slowly (a model that gets each rule right 99% of the time still passes); depth
+# is work that a complete spec cannot hand over ready-made.
+DEPTH = {
+    "algorithm": "an algorithmic core: few rules but a large input space, where the right result needs a real "
+                 "algorithm with deterministic tie-breaking (layout and wrapping, ordering with ties, quoting or "
+                 "escaping grammars, merging ranges). The tests enumerate many concrete cases with exact output.",
+    "callsites": "one invariant that must hold everywhere: the spec states a single behavioural invariant, and "
+                 "satisfying it means finding and changing every code path in click that it touches, across "
+                 "several classes and functions. State the invariant and exercise it through many different "
+                 "entry points; do not list the places to change.",
+    "state": "state and re-entrancy: the exact order of events and cleanup across nested and chained "
+             "invocations, exceptions raised midway, callbacks that re-enter, and context teardown. The tests "
+             "assert complete event sequences.",
+    "compat": "a compatibility trap: the feature has to change a hot path that existing behaviour depends on, so "
+              "the straightforward implementation breaks existing corner cases. The gold preserves them, the "
+              "spec states the backward-compatibility requirement, and existing tests guard it.",
+}
+
+# Which mechanisms suit a behaviour shape, in the order they are tried (round 1, then round 2).
+DEPTH_BY_SHAPE = {
+    "grammar": ["algorithm", "compat"],
+    "output": ["algorithm", "callsites"],
+    "lifecycle": ["state", "callsites"],
+    "interaction": ["compat", "callsites"],
+    "api": ["callsites", "state"],
+}
+
+
+def depth_for(shape: str, round_no: int) -> tuple[str, str]:
+    """(name, description) of the depth mechanism for the given escalation round (1-based)."""
+    names = DEPTH_BY_SHAPE.get(shape, ["callsites", "algorithm"])
+    name = names[(round_no - 1) % len(names)]
+    return name, DEPTH[name]
+
+
 AFFINITY = {
     "parser": {"grammar", "interaction", "api"},
     "types": {"grammar", "interaction", "api", "output"},

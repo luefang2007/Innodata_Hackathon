@@ -87,6 +87,39 @@ cp .env.example .env                                            # add OPENROUTER
 Output goes to `submission/`: `generated_tasks/`, `pipeline_run.json`, and `runs/` with every model
 call and every check report.
 
+## Status update (after the first run)
+
+- **Run 1:** 5/5 single-feature tasks passed all checks, for $10.95 on OpenRouter. They're in
+  `submission/generated_tasks/`.
+- **Difficulty probe:** Haiku 5.5, one-shot, cost $1.80. It solved 14 of 15 attempts, so single-feature
+  tasks are too easy. The specs are precise enough to transcribe.
+- **No more API spend** (team decision). Difficulty is now raised with the new `compose` stage, which
+  makes no model calls.
+  - It builds span-3 tasks: three verified features in one change, with every gate re-run on the
+    combination.
+  - Result: 5/5 composites are valid and pass `check_structure.py`. They're in
+    `submission/generated_tasks_composite/`.
+  - Their cost attribution is in `submission/pipeline_run_generated_tasks_composite.json`.
+  - See `factory/VARIATION.md` for how combinations are chosen. One pair of features conflicts in
+    `core.py`, and the gates caught it.
+- **Not measured:** composite difficulty. That needs the Harbor benchmark, or a probe, which would
+  spend API budget.
+- **Solver jury (new, in the pipeline):** the benchmark model (Haiku 5.5) attempts each candidate task
+  3 times before it ships. If it solves the task more than once, the generator must deepen the task
+  and it is measured again (max 2 rounds). See "Solver jury" in `factory/README.md`.
+  - Tested offline by replaying the 15 Haiku answers from the morning probe: the new grading
+    reproduces the morning results (3/3, 3/3, 3/3, 3/3, 2/3).
+  - Not yet run against a live model, so the current packages predate it. A fresh run needs the API:
+    `python -m taskfactory generate --n 5 --seed 2` (budget cap `FACTORY_BUDGET_USD`, default 25).
+- **Measured variation:** `python -m taskfactory diversity <packages>`. Single-feature set: max
+  similarity 0.11, no near-duplicates. Composites: max 0.69, two near-duplicate pairs, so the
+  single-feature set stays the submitted one.
+- **Cost fix:** run 1 paid for 7 cache writes ($5.6 of $10.95). Parallel calls now wait for the first
+  call per schema. The spend cap now counts only this output folder's own run logs.
+- **Packaging:** `python -m taskfactory bundle --team <TeamName>` builds `dist/<TeamName>_Track1.zip`
+  and runs the kit validator. Raw logs go in as `.tar.gz`, because the kit's secret scanner flags
+  generated code such as `token = ...` in plain `.json` logs.
+
 ## Still to do
 
 1. Put the key in `factory/.env` and run `generate`.

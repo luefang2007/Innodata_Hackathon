@@ -46,11 +46,34 @@ MODEL = os.environ.get("FACTORY_MODEL", "claude-opus-5-5" if BACKEND == "anthrop
 EFFORT = os.environ.get("FACTORY_EFFORT", "high")
 MAX_OUTPUT_TOKENS = int(os.environ.get("FACTORY_MAX_TOKENS", "64000"))
 MAX_ATTEMPTS = int(os.environ.get("FACTORY_MAX_ATTEMPTS", "3"))      # implement + repairs per task
-# Hard cap on total generation spend (USD), counting earlier runs logged under the runs dir and, on
-# OpenRouter, the key's reported usage. A call is only started if its worst-case cost still fits.
-BUDGET_USD = float(os.environ.get("FACTORY_BUDGET_USD", "15"))
+# Hard cap on generation spend (USD) for one output directory: it counts the calls logged under that
+# directory's runs/ folder, never the key's lifetime usage. A call starts only if its worst case fits.
+BUDGET_USD = float(os.environ.get("FACTORY_BUDGET_USD", "25"))
 RESERVE_PER_CALL_USD = float(os.environ.get("FACTORY_RESERVE_PER_CALL", "1.5"))
 RESPONSE_CACHE = os.environ.get("FACTORY_NO_CACHE", "") == ""        # reuse identical earlier calls
+OFFLINE = os.environ.get("FACTORY_OFFLINE", "") not in ("", "0")     # never call a model; replay cache only
+CACHE_STAGGER_SEC = float(os.environ.get("FACTORY_CACHE_STAGGER", "60"))
+
+# --- solver jury: measure difficulty before a task leaves the factory -------------------------------
+JURY = os.environ.get("FACTORY_JURY", "1") != "0"
+JURY_WEAK_MODEL = os.environ.get("FACTORY_JURY_WEAK", "anthropic/claude-haiku-5.5")   # the benchmark model
+JURY_WEAK_EFFORT = os.environ.get("FACTORY_JURY_WEAK_EFFORT", "high")
+JURY_K = int(os.environ.get("FACTORY_JURY_K", "3"))                   # one-shot attempts per round
+JURY_MAX_WEAK_RATE = float(os.environ.get("FACTORY_JURY_MAX_RATE", "0.34"))   # hard enough: solved/k <= this
+JURY_MAX_ESCALATIONS = int(os.environ.get("FACTORY_JURY_ESCALATIONS", "2"))   # "deepen" rounds per task
+JURY_STRONG_MODEL = os.environ.get("FACTORY_JURY_STRONG", "")         # optional blind strong solver; "" = off
+JURY_CONTEXT_CHARS = int(os.environ.get("FACTORY_JURY_CONTEXT", "240000"))    # keeps prompts < 100k tokens
+JURY_MAX_TRAPS = 20                                                    # existing tests a weak patch broke
+
+
+def backend_model(model: str) -> str:
+    """Model id in the active backend's spelling (OpenRouter: anthropic/claude-haiku-5.5; SDK: claude-haiku-5-5)."""
+    if BACKEND == "anthropic" and model.startswith("anthropic/"):
+        return model.removeprefix("anthropic/").replace(".", "-")
+    if BACKEND == "openrouter" and model.startswith("claude-"):
+        head, _, tail = model.rpartition("-")
+        return f"anthropic/{head}.{tail}"
+    return model
 
 # USD per million tokens, used only for the cost column in pipeline_run.json.
 PRICES = {

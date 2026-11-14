@@ -51,3 +51,60 @@ many of 12 broken versions of the gold the feature tests caught.
 
 The five tasks touch five different click subsystems and five different kinds of behaviour. No two
 share a primary module, and their regression slices come from the coverage of different code.
+
+## Measured variation
+
+We do not only claim the five tasks differ; `python -m taskfactory diversity` measures it from the
+packages themselves, with no model. Each package gets a fingerprint: the existing click classes and
+functions its gold changes, its regression tests, and the code terms its spec uses. Similarity of two
+packages is the mean Jaccard overlap of the three sets (0 = nothing shared, 1 = identical).
+
+| Pair | Changed symbols | Regression tests | Spec terms | Similarity |
+|---|---|---|---|---|
+| 0102 / 0104 | 0.07 | 0.21 | 0.05 | 0.11 |
+| 0102 / 0105 | 0.27 | 0.00 | 0.07 | 0.11 |
+| 0101 / 0102 | 0.07 | 0.08 | 0.05 | 0.07 |
+| 0101 / 0104 | 0.03 | 0.07 | 0.06 | 0.05 |
+| 0101 / 0103 | 0.00 | 0.12 | 0.00 | 0.04 |
+| 0101 / 0105 | 0.07 | 0.00 | 0.01 | 0.03 |
+| 0104 / 0105 | 0.03 | 0.00 | 0.04 | 0.02 |
+| 0102 / 0103, 0103 / 0104, 0103 / 0105 | 0.00 | 0.00 | 0.01 | 0.00 |
+
+Across the ten pairs the maximum is 0.11 and the mean 0.04; no pair is near the 0.5 near-duplicate
+threshold. The full report is `evidence/diversity_single.md`.
+
+The same measurement is why the span-3 composites below are not our submitted set: they score a
+maximum of 0.69 and a mean of 0.42, with two near-duplicate pairs (`evidence/diversity_composite.md`).
+
+## Second axis of variation: span (difficulty as a dial)
+
+A cheap one-shot probe (Haiku 5.5, no tools, no test runs) solved 14 of 15 attempts on the single-feature
+tasks above. Rich, precise specs make each feature fair, but one feature at a time is too easy. The
+pipeline now answers this in two ways. The solver jury (see the README) measures each candidate with
+the benchmark model and makes the generator deepen tasks that are solved too often. The compose stage
+needs no model at all: a span-k task asks for k verified features in one change, with one merged spec,
+the k golds applied together, every feature test, and a regression slice re-selected for the combined
+change. All eight gates run again on the combination, so compatibility is checked, not assumed.
+
+Two rules pick the combinations:
+
+1. **Integration first.** Combinations whose golds edit the same source files rank first, so the solver
+   has to coordinate changes in shared code (`core.py` is touched by four of the five features).
+2. **Balanced reuse.** Each feature is used at most ceil(n·k / features) times. If incompatible golds leave
+   gaps, the cap relaxes and the least-used features fill them.
+
+The gates found one real conflict: *help effective value* and *numbered choice prompts* edit the same
+lines of `core.py`, so their golds cannot coexist and every combination containing both was dropped.
+
+| Task | Features (span 3) | F2P | P2P | Mutants |
+|---|---|---|---|---|
+| 0201 | lifecycle hooks + help effective value + option shorthands | 56 | 160 | 12/12 |
+| 0202 | lifecycle hooks + option shorthands + numbered choice prompts | 58 | 160 | 11/12 |
+| 0203 | lifecycle hooks + help effective value + line completion protocol | 67 | 160 | 11/12 |
+| 0204 | help effective value + line completion protocol + option shorthands | 79 | 160 | 11/12 |
+| 0205 | lifecycle hooks + line completion protocol + numbered choice prompts | 69 | 160 | 11/12 |
+
+Each composite differs from every other in at least one feature and in the subsystems it forces the
+solver to integrate. The trade-off is explicit: five span-3 tasks drawn from five features must share
+features, which costs some variation to buy difficulty. A larger atom pool (another `generate` run)
+removes the overlap; the composition stage itself scales without model cost.

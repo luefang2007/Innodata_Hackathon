@@ -1,0 +1,86 @@
+{
+ "pipeline": "click-task-factory/0.2 (generate + compose)",
+ "note": "Composite tasks reuse generated atoms; each atom's real generation cost is split evenly across the composites that use it. Composition itself makes no model calls.",
+ "tasks": [
+  {
+   "instance_id": "pallets__click-0201-combo-lifecycle-hooks-value-origin-shorthand-expansions",
+   "model": "anthropic/claude-opus-5.5",
+   "wall_seconds": 602.7,
+   "model_calls": 2,
+   "attempts": 3,
+   "n_input_tokens": 401242,
+   "n_output_tokens": 50319,
+   "n_cache_tokens": 239450,
+   "cost_usd": 2.0071,
+   "composed_from": [
+    "pallets__click-0101-group-subcommand-lifecycle-hooks",
+    "pallets__click-0102-help-effective-value-origin",
+    "pallets__click-0104-option-shorthand-expansions"
+   ]
+  },
+  {
+   "instance_id": "pallets__click-0202-combo-lifecycle-hooks-shorthand-expansions-choice-prompts",
+   "model": "anthropic/claude-opus-5.5",
+   "wall_seconds": 647.3,
+   "model_calls": 3,
+   "attempts": 3,
+   "n_input_tokens": 455546,
+   "n_output_tokens": 53188,
+   "n_cache_tokens": 186238,
+   "cost_usd": 2.5903,
+   "composed_from": [
+    "pallets__click-0101-group-subcommand-lifecycle-hooks",
+    "pallets__click-0104-option-shorthand-expansions",
+    "pallets__click-0105-numbered-choice-prompts"
+   ]
+  },
+  {
+   "instance_id": "pallets__click-0203-combo-lifecycle-hooks-value-origin-completion-protocol",
+   "model": "anthropic/claude-opus-5.5",
+   "wall_seconds": 504.4,
+   "model_calls": 2,
+   "attempts": 3,
+   "n_input_tokens": 399367,
+   "n_output_tokens": 38368,
+   "n_cache_tokens": 239450,
+   "cost_usd": 1.7606,
+   "composed_from": [
+    "pallets__click-0101-group-subcommand-lifecycle-hooks",
+    "pallets__click-0102-help-effective-value-origin",
+    "pallets__click-0103-line-completion-protocol"
+   ]
+  },
+  {
+   "instance_id": "pallets__click-0204-combo-value-origin-completion-protocol-shorthand-expansions",
+   "model": "anthropic/claude-opus-5.5",
+   "wall_seconds": 712.0,
+   "model_calls": 3,
+   "attempts": 3,
+   "n_input_tokens": 443578,
+   "n_output_tokens": 58246,
+   "n_cache_tokens": 266055,
+   "cost_usd": 2.2472,
+   "composed_from": [
+    "pallets__click-0102-help-effective-value-origin",
+    "pallets__click-0103-line-completion-protocol",
+    "pallets__click-0104-option-shorthand-expansions"
+   ]
+  },
+  {
+   "instance_id": "pallets__click-0205-combo-lifecycle-hooks-completion-protocol-choice-prompts",
+   "model": "anthropic/claude-opus-5.5",
+   "wall_seconds": 543.2,
+   "model_calls": 3,
+   "attempts": 3,
+   "n_input_tokens": 453671,
+   "n_output_tokens": 41237,
+   "n_cache_tokens": 186238,
+   "cost_usd": 2.3438,
+   "composed_from": [
+    "pallets__click-0101-group-subcommand-lifecycle-hooks",
+    "pallets__click-0103-line-completion-protocol",
+    "pallets__click-0105-numbered-choice-prompts"
+   ]
+  }
+ ]
+}

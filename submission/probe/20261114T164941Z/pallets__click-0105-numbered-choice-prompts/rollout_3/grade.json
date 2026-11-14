@@ -1,0 +1,12 @@
+{
+ "applied": true,
+ "reward": 0.25,
+ "resolved": false,
+ "f2p": "4/16",
+ "p2p": "80/80",
+ "touched": [
+  "src/click/termui.py"
+ ],
+ "rollout": 3,
+ "tries": 1
+}
