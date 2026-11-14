@@ -26,6 +26,9 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 FACTORY = ROOT / "factory"
 SUB = ROOT / "submission_v2"
+# The factory's own interpreter (it has anthropic, pytest, coverage). This script itself needs only the
+# standard library, so it can be started with any Python; the pipeline steps always run in this venv.
+VENV_PY = FACTORY / ".cache" / "venv" / ("Scripts/python.exe" if os.name == "nt" else "bin/python")
 
 GATES = {
     "hygiene": "the feature request gives no hints and leaks no solution",
@@ -50,7 +53,7 @@ def latest_summary(d: Path) -> dict:
 
 def generate(demo: Path) -> None:
     env = {**os.environ, "FACTORY_OFFLINE": "1", "PYTHONIOENCODING": "utf-8"}
-    cmd = [sys.executable, "-u", "-m", "taskfactory", "generate", "--n", "5", "--seed", "1",
+    cmd = [str(VENV_PY), "-u", "-m", "taskfactory", "generate", "--n", "5", "--seed", "1",
            "--out", str(demo / "generated_tasks")]
     print("FACTORY_OFFLINE=1  python -m taskfactory generate --n 5 --seed 1 --out ../demo/generated_tasks\n",
           flush=True)
@@ -135,7 +138,7 @@ def show_measured(sub: Path) -> None:
 
 def regrade(sub: Path, demo: Path) -> None:
     run = sorted(p for p in (sub / "runs").iterdir() if (p / "summary.json").exists())[-1]
-    cmd = [sys.executable, "-u", "-m", "taskfactory", "regrade", "--run", str(run),
+    cmd = [str(VENV_PY), "-u", "-m", "taskfactory", "regrade", "--run", str(run),
            "--tasks", str(sub / "generated_tasks"), "--out", str(demo / "probe_container")]
     subprocess.run(cmd, cwd=FACTORY, env={**os.environ, "FACTORY_OFFLINE": "1", "PYTHONIOENCODING": "utf-8"},
                    check=False)
@@ -152,11 +155,12 @@ def main() -> int:
     for stream in (sys.stdout, sys.stderr):
         stream.reconfigure(encoding="utf-8", errors="replace")
     t0 = time.time()
+    if (not a.skip_generate or a.regrade) and not VENV_PY.exists():
+        # Checked before anything is deleted, so a failed start never wipes the last demo run.
+        print(f"{VENV_PY} is missing: run `python -m taskfactory prepare` in factory/ first; the replay also "
+              "needs the response cache (factory/.cache/llm_cache) of the machine that made the recorded run.")
+        return 1
     if not a.skip_generate:
-        if not (FACTORY / ".cache").exists():
-            print("factory/.cache is missing: run `python -m taskfactory prepare` first; the replay also needs "
-                  "the response cache of the machine that made the recorded run.")
-            return 1
         shutil.rmtree(a.out, ignore_errors=True)
         banner("1. generate and self-check five packages (model answers replayed, every check live)")
         generate(a.out)
