@@ -1,5 +1,5 @@
 #!/usr/bin/env python
-"""Fill the organizers' five-slide template with our numbers.
+"""Fill the organizers' five-slide template with our numbers and draw the figures on it.
 
 Every number on the slides is read from the evidence files of the frozen set (submission_v2/), so the
 deck cannot drift from what is submitted. No model is called.
@@ -9,6 +9,7 @@ deck cannot drift from what is submitted. No model is called.
 Needs python-pptx (not a pipeline dependency). The template, `Presentation Template.pptx`, is organizer
 material: it sits in the repo folder locally and is not committed, and neither is the finished deck
 (it travels in the submission ZIP: `python -m taskfactory bundle` picks up `*Track1*.pptx`).
+Close the deck in PowerPoint before running this: PowerPoint locks the file while it is open.
 """
 from __future__ import annotations
 
@@ -20,13 +21,16 @@ from pathlib import Path
 
 from pptx import Presentation
 from pptx.dml.color import RGBColor
+from pptx.enum.shapes import MSO_CONNECTOR, MSO_SHAPE
 from pptx.enum.text import MSO_ANCHOR, PP_ALIGN
 from pptx.oxml.ns import qn
+from pptx.oxml.xmlchemy import OxmlElement
 from pptx.util import Inches, Pt
 
 ROOT = Path(__file__).resolve().parent.parent
 BLUE, INK, CARD, WHITE = "0070C0", "474747", "F1F2F2", "FFFFFF"
-FONT, MONO = "League Spartan", "Consolas"
+GREY, PALE, EDGE, DARK = "9CA3AF", "9CC3E6", "C9CED6", "111827"
+FONT, MONO, SYMBOL = "League Spartan", "Consolas", "Segoe UI Symbol"
 XML_SPACE = "{http://www.w3.org/XML/1998/namespace}space"
 
 # Short human names for the five features (the instance ids are long).
@@ -80,7 +84,7 @@ def evidence(sub: Path) -> dict:
     return ev
 
 
-# ---------------------------------------------------------------- pptx helpers
+# ---------------------------------------------------------------- template text helpers
 
 def by_name(slide, name):
     for sh in slide.shapes:
@@ -141,7 +145,7 @@ def fill(shape, body, base: dict | None = None, label: str | None = None, line: 
     """Replace the last paragraph of a text box by `body` (a list; each item is a string, a list of
     (text, style) segments, or a dict {"segs": [...], "line": .., "before": ..}). Formatting is cloned
     from the template paragraph; `base` is a style applied to every run, `line` a line spacing in
-    thousandths of a percent for every paragraph."""
+    thousandths of a percent for every paragraph. An empty `body` leaves only the label."""
     tx = shape.text_frame._txBody
     ps = tx.findall(qn("a:p"))
     if label is not None:
@@ -184,36 +188,150 @@ def remove(slide, name: str) -> None:
     el.getparent().remove(el)
 
 
-def cell_text(cell, text: str, size: float, color: str = INK, bold: bool = False, align=PP_ALIGN.LEFT,
+# ---------------------------------------------------------------- drawing helpers (new shapes)
+
+def rgb(hex_: str) -> RGBColor:
+    return RGBColor.from_string(hex_)
+
+
+def box(slide, name: str, left: float, top: float, width: float, height: float, fill_hex: str | None = None,
+        line_hex: str | None = None, kind=MSO_SHAPE.ROUNDED_RECTANGLE, radius: float = 0.12):
+    sh = slide.shapes.add_shape(kind, Inches(left), Inches(top), Inches(width), Inches(height))
+    sh.name = name
+    sh.shadow.inherit = False
+    if fill_hex:
+        sh.fill.solid()
+        sh.fill.fore_color.rgb = rgb(fill_hex)
+    else:
+        sh.fill.background()
+    if line_hex:
+        sh.line.color.rgb = rgb(line_hex)
+        sh.line.width = Pt(1)
+    else:
+        sh.line.fill.background()
+    if kind == MSO_SHAPE.ROUNDED_RECTANGLE:
+        sh.adjustments[0] = radius
+    return sh
+
+
+def put_text(sh, lines, align=PP_ALIGN.CENTER, anchor=MSO_ANCHOR.MIDDLE, margin: float = 0.06):
+    """One paragraph per item. An item is a run (text, size, color, bold[, font]) or a list of runs."""
+    tf = sh.text_frame
+    tf.word_wrap = True
+    tf.margin_left = tf.margin_right = Inches(margin)
+    tf.margin_top = tf.margin_bottom = Inches(0.02)
+    tf.vertical_anchor = anchor
+    for i, item in enumerate(lines):
+        p = tf.paragraphs[0] if i == 0 else tf.add_paragraph()
+        p.alignment = align
+        for text, size, color, bold, *font in (item if isinstance(item, list) else [item]):
+            r = p.add_run()
+            r.text = text
+            r.font.size, r.font.bold = Pt(size), bold
+            r.font.name = font[0] if font else FONT
+            r.font.color.rgb = rgb(color)
+    return sh
+
+
+def textbox(slide, name: str, left: float, top: float, width: float, height: float, lines,
+            align=PP_ALIGN.LEFT, anchor=MSO_ANCHOR.TOP):
+    tb = slide.shapes.add_textbox(Inches(left), Inches(top), Inches(width), Inches(height))
+    tb.name = name
+    return put_text(tb, lines, align, anchor, margin=0)
+
+
+def stroke(slide, name: str, x1: float, y1: float, x2: float, y2: float, color: str, width: float = 1.5,
+           arrow: bool = False):
+    c = slide.shapes.add_connector(MSO_CONNECTOR.STRAIGHT, Inches(x1), Inches(y1), Inches(x2), Inches(y2))
+    c.name = name
+    c.line.color.rgb = rgb(color)
+    c.line.width = Pt(width)
+    if arrow:
+        tail = OxmlElement("a:tailEnd")
+        tail.set("type", "triangle")
+        c.get_or_add_ln().append(tail)
+    return c
+
+
+def dots(frac: str, on: str = BLUE, size: float = 12) -> list:
+    """'1/3' becomes runs that draw one filled and two hollow circles."""
+    solved, k = (int(x) for x in frac.split("/"))
+    runs = []
+    if solved:
+        runs.append(("●" * solved, size, on, False, SYMBOL))
+    if k - solved:
+        runs.append(("○" * (k - solved), size, GREY, False, SYMBOL))
+    return runs
+
+
+def cell_text(cell, text, size: float = 12, color: str = INK, bold: bool = False, align=PP_ALIGN.LEFT,
               fill_hex: str = CARD, font: str = FONT) -> None:
+    """`text` is a string, or a list of runs (text, size, color, bold[, font])."""
     cell.fill.solid()
-    cell.fill.fore_color.rgb = RGBColor.from_string(fill_hex)
+    cell.fill.fore_color.rgb = rgb(fill_hex)
     cell.vertical_anchor = MSO_ANCHOR.MIDDLE
     cell.margin_left = cell.margin_right = Inches(0.08)
     cell.margin_top = cell.margin_bottom = Inches(0.03)
     p = cell.text_frame.paragraphs[0]
     p.alignment = align
-    r = p.add_run()
-    r.text = text
-    r.font.size, r.font.bold, r.font.name = Pt(size), bold, font
-    r.font.color.rgb = RGBColor.from_string(color)
+    runs = [(text, size, color, bold, font)] if isinstance(text, str) else text
+    for t, sz, col, b, *f in runs:
+        r = p.add_run()
+        r.text = t
+        r.font.size, r.font.bold, r.font.name = Pt(sz), b, (f[0] if f else font)
+        r.font.color.rgb = rgb(col)
+
+
+def draw_flow(slide, top: float) -> None:
+    """The pipeline as five boxes and two feedback loops: repair (grey) and deepen (blue, the part that is ours)."""
+    x0, w, gap, h = 1.11, 1.86, 0.4525, 0.84
+    y = top + 0.46
+    steps = [("1  Plan", ["variation matrix:", "area × kind of change"], False),
+             ("2  Write", ["Opus 5.5: feature request,", "reference solution, tests"], False),
+             ("3  Check", ["8 local checks on the", "base and the reference"], False),
+             ("4  Measure", ["solver jury: Haiku 5.5", "attempts it 3 times"], True),
+             ("5  Package", ["Harbor task,", "ready to grade"], False)]
+    centers = []
+    for i, (name, sub, ours) in enumerate(steps):
+        x = x0 + i * (w + gap)
+        centers.append(x + w / 2)
+        b = box(slide, f"flow-step{i + 1}", x, y, w, h, BLUE if ours else WHITE, None if ours else EDGE)
+        put_text(b, [(name, 13, WHITE if ours else DARK, True)]
+                 + [(s, 10, WHITE if ours else INK, False) for s in sub])
+        if i < len(steps) - 1:
+            box(slide, f"flow-arrow{i + 1}", x + w + 0.09, y + h / 2 - 0.1, gap - 0.18, 0.2, GREY,
+                kind=MSO_SHAPE.RIGHT_ARROW)
+    yb = y + h
+    # repair: Check -> Write
+    xs, xe, yh = centers[2], centers[1] + 0.3, yb + 0.22
+    stroke(slide, "repair-1", xs, yb, xs, yh, "8A8F98")
+    stroke(slide, "repair-2", xs, yh, xe, yh, "8A8F98")
+    stroke(slide, "repair-3", xe, yh, xe, yb + 0.02, "8A8F98", arrow=True)
+    textbox(slide, "repair-label", xe + 0.1, yh + 0.02, 3.6, 0.2,
+            [("a check failed: repair with the exact report", 10, "6B7280", False)])
+    # deepen: Measure -> Write
+    xs, xe, yh = centers[3], centers[1] - 0.3, yb + 0.58
+    stroke(slide, "deepen-1", xs, yb, xs, yh, BLUE, 2)
+    stroke(slide, "deepen-2", xs, yh, xe, yh, BLUE, 2)
+    stroke(slide, "deepen-3", xe, yh, xe, yb + 0.02, BLUE, 2, arrow=True)
+    textbox(slide, "deepen-label", xe + 0.1, yh + 0.02, 6.2, 0.2,
+            [("solved more than once: deepen the task, then check and measure it again", 10, BLUE, True)])
 
 
 # ---------------------------------------------------------------- the five slides
 
 def build(template: Path, out: Path, sub: Path, team: str, members: str) -> dict:
     ev = evidence(sub)
-    T = {t["number"]: t for t in ev["tasks"]}
-    hard = min(ev["tasks"], key=lambda t: t["solved"] / t["graded"])          # the task the juror failed most
-    per_task = ", ".join(t["final"] for t in ev["tasks"])
+    rows = ev["tasks"]
+    hard = min(rows, key=lambda t: t["solved"] / t["graded"])                 # the task the juror failed most
+    per_task = ", ".join(t["final"] for t in rows)
     miss = next(a for a in hard["attempts"] if not a["container_resolved"])
     f_ok, f_all = miss["f2p"].split("/")
     n_miss = sum(1 for a in hard["attempts"] if not a["container_resolved"])
-    cut = sum(1 for t in ev["tasks"] if "truncated" in t["note"])
-    easy = sum(1 for t in ev["tasks"] if t["solved"] == t["graded"])
+    cut = sum(1 for t in rows if "truncated" in t["note"])
+    easy = sum(1 for t in rows if t["solved"] == t["graded"])
     files = sorted({l[6:] for l in (sub / "generated_tasks" / hard["iid"] / "solution" / "patch.diff")
                     .read_text(encoding="utf-8").splitlines() if l.startswith("+++ b/")})
-    bold_blue = {"b": True, "color": BLUE}
 
     prs = Presentation(str(template))
     s1, s2, s3, s4, s5 = prs.slides
@@ -226,7 +344,7 @@ def build(template: Path, out: Path, sub: Path, team: str, members: str) -> dict
     by_name(s1, "pitch").height = Inches(1.15)
     fill(by_name(s1, "pitch"), [
         "Our pipeline generates feature-development tasks on pallets/click to test whether a model can add a "
-        "precisely specified behaviour to a real codebase without breaking what already works. Before a task "
+        "precisely specified behavior to a real codebase without breaking what already works. Before a task "
         "ships, the pipeline measures how often the benchmark model solves it."], line=130000)
     by_name(s1, "example").top = Inches(6.15)
     fill(by_name(s1, "example"), [
@@ -234,22 +352,17 @@ def build(template: Path, out: Path, sub: Path, team: str, members: str) -> dict
         f"{len(files)} files; {hard['f2p']} new tests must pass and {hard['p2p']} existing tests must stay green."],
         line=130000)
 
-    # 2 ---- how we generate a task
-    place(s2, ("card1", "card1-text"), 2.06, 1.08)
-    place(s2, ("card2", "card2-text"), 3.30, 1.82)
-    place(s2, ("card3", "card3-text"), 5.28, 1.38)
+    # 2 ---- how we generate a task: input, the pipeline as a diagram, what changes
+    flow_top = 3.18
+    place(s2, ("card1", "card1-text"), 2.06, 1.0)
+    place(s2, ("card2",), flow_top, 2.2)
+    place(s2, ("card2-text",), flow_top + 0.12, 0.3)
+    place(s2, ("card3", "card3-text"), 5.50, 1.12)
     fill(by_name(s2, "card1-text"), [
-        f"pallets/click at tag 8.5.1 (commit {ev['base'][:8]}) and a seed. The seed picks {len(ev['tasks'])} cells "
-        f"of a variation matrix: six areas of click by five kinds of behaviour."], base={"size": 14})
-    fill(by_name(s2, "card2-text"), [
-        [("1  Write  ", bold_blue),
-         ("Claude Opus 5.5 writes the feature request, a reference solution and new tests.", None)],
-        [("2  Check  ", bold_blue),
-         ("Eight local checks: the new tests fail on the base and pass on the reference, existing tests stay "
-          "green, injected bugs are caught. A failure goes back to the model with the exact report.", None)],
-        [("3  Measure  ", bold_blue),
-         ("Haiku 5.5 attempts the task 3 times. Solved more than once: deepen, re-check, measure again.", None)],
-    ], base={"size": 14})
+        f"pallets/click at tag 8.5.1 (commit {ev['base'][:8]}) and a seed. The seed picks {len(rows)} cells "
+        f"of a variation matrix: six areas of click by five kinds of behavior."], base={"size": 14})
+    fill(by_name(s2, "card2-text"), [])                                      # keep the label; the diagram follows
+    draw_flow(s2, flow_top)
     fill(by_name(s2, "card3-text"), [
         f"Task 0101 (lifecycle hooks): call order, exceptions and re-entrancy across {len(files)} files. "
         f"Task 0103 (shell completion): splitting a half-typed command line. Measured overlap between any two "
@@ -258,7 +371,7 @@ def build(template: Path, out: Path, sub: Path, team: str, members: str) -> dict
     # 3 ---- live demo
     place(s3, ("demo-card", "demo-bar", "demo-text"), 2.08, 2.42)
     code = {"font": MONO, "size": 13.5}
-    dim = {"font": MONO, "size": 13.5, "color": "9CA3AF"}
+    dim = {"font": MONO, "size": 13.5, "color": GREY}
     fill(by_name(s3, "demo-text"), [
         {"segs": [("Entry point: one script. The model's recorded answers are replayed, so the demo spends "
                    "nothing; every check runs live.", {"size": 16})], "line": 125000},
@@ -275,7 +388,7 @@ def build(template: Path, out: Path, sub: Path, team: str, members: str) -> dict
     ])
     watch = [
         ("THE FEATURE REQUEST",
-         "instruction.md of a package made in front of you: what to build, written as observable behaviour."),
+         "instruction.md of a package made in front of you: what to build, written as observable behavior."),
         ("CHECKS ON BASE AND REFERENCE",
          "The new tests fail on click 8.5.1 and pass with the reference solution. In Harbor: nop 0.0, oracle 1.0."),
         ("WHICH EXISTING TESTS RAN",
@@ -285,35 +398,42 @@ def build(template: Path, out: Path, sub: Path, team: str, members: str) -> dict
     for i, (label, text) in enumerate(watch):
         left = 0.78 + i * (w + gap)
         clone(s3, card_src, f"watch{i + 1}", left, top, w, h)
-        box = clone(s3, card_text_src, f"watch{i + 1}-text", left + 0.25, top, w - 0.5, h)
-        fill(box, [text], base={"size": 13.5}, label=label)
+        tb = clone(s3, card_text_src, f"watch{i + 1}-text", left + 0.25, top, w - 0.5, h)
+        fill(tb, [text], base={"size": 13.5}, label=label)
 
-    # 4 ---- what the runs showed
+    # 4 ---- what the runs showed: four numbers, the required sentences, one row per task
     remove(s4, "card-visual")
     remove(s4, "card-visual-text")
-    place(s4, ("card-coding", "card-coding-text"), 2.06, 2.4)
+    tw, tg, t_y, t_h = (11.78 - 3 * 0.16) / 4, 0.16, 2.06, 0.94
+    tiles = [
+        ([(f"{ev['valid']} / {ev['requested']}", 26, BLUE, True)], "unedited packages passed every check"),
+        ([("1.0 / 0.0", 26, BLUE, True)], "Harbor oracle / nop on all five"),
+        ([(f"{ev['solved']} / {ev['graded']}", 26, BLUE, True)], "Haiku one-shot attempts solved"),
+        (dots(hard["first"], PALE, 22) + [("  →  ", 20, GREY, False)] + dots(hard["final"], BLUE, 22),
+         f"task {hard['number']:04d} after one deepening round"),
+    ]
+    for i, (big, caption) in enumerate(tiles):
+        tile = box(s4, f"tile{i + 1}", 0.78 + i * (tw + tg), t_y, tw, t_h, CARD, radius=0.1)
+        put_text(tile, [big, (caption, 10.5, INK, False)])
+    card_top, card_h = t_y + t_h + 0.14, 1.62
+    place(s4, ("card-coding", "card-coding-text"), card_top, card_h)
     rule = ("a hook registered while a chain of subcommands runs must apply to the later ones"
             if any("registered_during_invocation" in k for k in hard["failed_f2p"]) else
             "see the jury log of that task")
     fill(by_name(s4, "card-coding-text"), [
-        [(f"{ev['valid']} of {ev['requested']} unedited packages passed every check: ", {"b": True}),
-         ("8 local gates, the kit's structure check, and Harbor oracle 1.0 / nop 0.0 in images built from each "
-          "package's own Dockerfile.", None)],
-        [(f"anthropic/claude-haiku-5.5 achieved {ev['solved']} successful / {ev['graded']} completed graded "
-          f"attempts. ", {"b": True}),
-         ("These are one-shot attempts by the pipeline's solver jury (k = 3), re-graded inside the task "
-          "containers; the official terminus-2 resolve@k has not been run yet.", None)],
+        [("Model: anthropic/claude-haiku-5.5. ", {"b": True}),
+         (f"{ev['solved']} successful / {ev['graded']} completed graded attempts, one-shot inside the pipeline "
+          f"(k = 3) and re-graded in the task containers. The official terminus-2 resolve@k has not been run "
+          f"yet.", None)],
         [("One failure: ", {"b": True}),
          (f"on task {hard['number']:04d}, {n_miss} of {hard['graded']} attempts failed the same test ({f_ok} of "
-          f"{f_all} feature tests passed, no existing test broke). The log names the rule they missed: "
-          f"{rule}.", None)],
-    ], base={"size": 13.5}, line=120000)
+          f"{f_all} feature tests passed, no existing test broke): {rule}.", None)],
+    ], base={"size": 13}, line=120000)
 
-    cols = [("TASK", 0.62), ("FEATURE ADDED TO CLICK", 3.5), ("AREA × KIND OF CHANGE", 1.9),
-            ("NEW / EXISTING TESTS", 1.72), ("INJECTED BUGS CAUGHT", 1.6), ("ORACLE / NOP", 1.16),
-            ("HAIKU SOLVED", 1.28)]
-    rows = ev["tasks"]
-    row_h, t_top = 0.3, 4.64
+    cols = [("TASK", 0.6), ("FEATURE ADDED TO CLICK", 3.4), ("AREA × KIND OF CHANGE", 1.85),
+            ("NEW / EXISTING TESTS", 1.82), ("BUGS CAUGHT", 1.2), ("ORACLE / NOP", 1.15),
+            ("HAIKU SOLVED (OF 3)", 1.76)]
+    row_h, t_top = 0.28, card_top + card_h + 0.14
     gf = s4.shapes.add_table(len(rows) + 1, len(cols), Inches(0.78), Inches(t_top), Inches(11.78),
                              Inches(row_h * (len(rows) + 1)))
     gf.name = "results-table"
@@ -327,22 +447,41 @@ def build(template: Path, out: Path, sub: Path, team: str, members: str) -> dict
         shade = CARD if r_i % 2 else WHITE
         changed = t["first"] != t["final"]
         vals = [f"{t['number']:04d}", FEATURE.get(t["number"], t["iid"].split("-", 2)[-1]), t["cell"],
-                f"{t['f2p']} / {t['p2p']}", f"{t['killed']} / {t['mutants']}", f"{t['oracle']:.1f} / {t['nop']:.1f}",
-                f"{t['first']}  →  {t['final']}" if changed else t["final"]]
+                f"{t['f2p']} / {t['p2p']}", f"{t['killed']} / {t['mutants']}", f"{t['oracle']:.1f} / {t['nop']:.1f}"]
         for c_i, v in enumerate(vals):
-            last = c_i == len(vals) - 1
-            cell_text(tbl.cell(r_i, c_i), v, 12, BLUE if (last and changed) else INK, bold=(last and changed) or c_i == 0,
+            cell_text(tbl.cell(r_i, c_i), v, 12, INK, bold=c_i == 0,
                       align=PP_ALIGN.LEFT if c_i < 3 else PP_ALIGN.CENTER, fill_hex=shade)
+        runs = (dots(t["first"], PALE, 13) + [(" → ", 11, GREY, False)] if changed else []) \
+            + dots(t["final"], BLUE, 13) + [(f"  {t['final']}", 12, BLUE if changed else INK, changed)]
+        cell_text(tbl.cell(r_i, len(vals)), runs, align=PP_ALIGN.CENTER, fill_hex=shade)
     tbl.rows[0].height = Inches(row_h)
 
-    # 5 ---- what we learned
+    # 5 ---- what we learned (the finding gets its before / after picture)
     for i, top in enumerate((2.06, 3.62, 5.18), start=1):       # a little taller than the template: room for 3 lines
         place(s5, (f"card{i}", f"card{i}-text"), top, 1.36)
+    by_name(s5, "card1-text").width = Inches(8.3)
     fill(by_name(s5, "card1-text"), [
         f"A task can pass every validity check and still be trivial. Before deepening, all {len(rows)} tasks were "
         f"valid and Haiku solved each {rows[0]['first'].replace('/', ' times out of ')}. With the solver in the "
         f"loop, one deepening round took task {hard['number']:04d} from {hard['first']} to {hard['final']}, still "
         f"passing every check."], base={"size": 14})
+    k, was, now = hard["graded"], int(hard["first"].split("/")[0]), hard["solved"]
+    gx, gy, d, step = 9.95, 2.06 + 0.62, 0.26, 0.32
+    textbox(s5, "dots-title", 9.7, 2.06 + 0.24, 2.7, 0.2,
+            [(f"TASK {hard['number']:04d} · HAIKU ATTEMPTS", 9, BLUE, True)], align=PP_ALIGN.CENTER)
+    for j in range(k):
+        box(s5, f"dot-before{j + 1}", gx + j * step, gy, d, d, PALE if j < was else None,
+            None if j < was else GREY, kind=MSO_SHAPE.OVAL)
+    ax = gx + k * step + 0.06
+    box(s5, "dots-arrow", ax, gy + 0.04, 0.3, 0.18, GREY, kind=MSO_SHAPE.RIGHT_ARROW)
+    bx = ax + 0.3 + 0.12
+    for j in range(k):
+        box(s5, f"dot-after{j + 1}", bx + j * step, gy, d, d, BLUE if j < now else None,
+            None if j < now else GREY, kind=MSO_SHAPE.OVAL)
+    textbox(s5, "dots-before", gx - 0.2, gy + d + 0.05, k * step + 0.34, 0.2, [("before", 9, "6B7280", False)],
+            align=PP_ALIGN.CENTER)
+    textbox(s5, "dots-after", bx - 0.2, gy + d + 0.05, k * step + 0.34, 0.2, [("after deepening", 9, "6B7280", False)],
+            align=PP_ALIGN.CENTER)
     fill(by_name(s5, "card2-text"), [
         f"{easy} of {len(rows)} tasks are still easy by our measure: {cut} deepening answers were cut off at the "
         f"output-token limit, and one deepened task stayed 3/3. Our measure is a one-shot proxy, so the official "
@@ -357,12 +496,14 @@ def build(template: Path, out: Path, sub: Path, team: str, members: str) -> dict
         "30 s. We built a task factory for pallets/click. Other pipelines claim their tasks are hard and fair; "
         "ours measures it. The benchmark model sits inside the generation loop, so every task ships with a "
         "measured solve rate, a measured overlap with its sibling tasks, and proof that its tests are sound.",
-        "30 s. Input: click 8.5.1 and a seed. A variation matrix gives each task a different area of click and a "
-        "different kind of behaviour. Opus writes the spec, the reference solution and the tests. Eight local "
-        "checks reject broken, unfair or already-upstream tasks (the other checks: spec hygiene, the solution "
-        "extends real click code, the tests assert only what the spec states, the feature is not already in "
-        "upstream click). Then Haiku attempts the task three times; if it is too easy the task is deepened and "
-        "re-checked.",
+        "30 s. Input: click 8.5.1 and a seed. Read the diagram left to right. Plan: a variation matrix gives "
+        "each task a different area of click and a different kind of behavior. Write: Opus writes the feature "
+        "request, the reference solution and the tests. Check: eight local checks reject broken, unfair or "
+        "already-upstream tasks (new tests fail on the base and pass on the reference, existing tests stay "
+        "green, injected bugs are caught, tests assert only what the request states, the feature is not already "
+        "in upstream click). The grey loop is repair: a failed check goes back to the model with the exact "
+        "report. The blue loop is ours: Haiku attempts the task three times, and if it solves it more than once "
+        "the task is deepened, then checked and measured again.",
         "2.5 min. In PowerShell, from the repo folder, run .\\demo (about 90 seconds). It replays the model "
         "answers recorded in the response cache, so it spends nothing, and runs every check for real. While it "
         "runs, read the log: design, then each check. Offline, 4 of 5 packages complete; the fifth (0103) has a "
@@ -374,11 +515,13 @@ def build(template: Path, out: Path, sub: Path, team: str, members: str) -> dict
         "what the replayed answers cost when they were first generated, and offline the solver jury is skipped "
         "(`no graded attempt`), which is why its recorded result is shown in the last step. A truly fresh "
         "generation needs the model key and about 15 minutes.",
-        f"1 min. {ev['valid']} of {ev['requested']} packages valid, unedited, in two separate runs. Harbor "
-        f"self-check: oracle 1.0, nop 0.0 for all. Haiku one-shot solved {ev['solved']} of {ev['graded']} graded "
-        f"attempts; these are jury attempts re-graded in the task containers, not terminus-2 rollouts, and the "
-        f"official resolve@k is not run. The table shows each task: new tests / existing tests, injected bugs "
-        f"caught, and the Haiku result. Task 0101 went from 3/3 to 1/3 after one deepening round.",
+        f"1 min. The four numbers first. {ev['valid']} of {ev['requested']} packages valid and unedited, in two "
+        f"separate runs; every check means 8 local gates, the kit's structure check, and Harbor oracle 1.0 / nop "
+        f"0.0 in images built from each package's own Dockerfile. Haiku one-shot solved {ev['solved']} of "
+        f"{ev['graded']} graded attempts; these are solver-jury attempts re-graded in the task containers, not "
+        f"terminus-2 rollouts, and the official resolve@k is not run. The table has one row per task: new tests "
+        f"/ existing tests, injected bugs caught by the tests, and the Haiku result as dots. Task "
+        f"{hard['number']:04d} went from {hard['first']} to {hard['final']} after one deepening round.",
         "30 s. Finding: validity does not imply difficulty, and measuring inside the loop is what exposed it. "
         "Limitation: four tasks are still easy; three deepening answers were cut off at the output limit. Next: "
         "run the official benchmark and check whether the cheap proxy predicts it.",
