@@ -37,4 +37,17 @@ a new seed produces a different, still non-overlapping plan.
 
 ## Batch produced for the submission
 
-(filled in from `runs/<run_id>/summary.md` after the final run)
+Run `20261114T162521Z-s1` (seed 1, `anthropic/claude-opus-5.5` via OpenRouter). All 5 cells produced a
+valid package. F2P counts the feature tests, P2P the coverage-selected existing tests, and Mutants how
+many of 12 broken versions of the gold the feature tests caught.
+
+| Cell (area x shape) | Task | What the solver must get right | F2P | P2P | Mutants |
+|---|---|---|---|---|---|
+| core x lifecycle | `group-subcommand-lifecycle-hooks` | ordering of before/after hooks around nested and chained subcommands | 15 | 80 | 11/12 |
+| help x interaction | `help-effective-value-origin` | precedence of env var, prompt, `default_map` and default, plus help rendering and conflict with `show_default` | 14 | 80 | 12/12 |
+| completion x grammar | `line-completion-protocol` | tokenising a shell line from `COMP_LINE`/`COMP_POINT`, quoting and cursor position | 38 | 19 | 10/12 |
+| parser x api | `option-shorthand-expansions` | a declarative expansion API resolved inside the parser's token loop | 27 | 80 | 11/12 |
+| termui x output | `numbered-choice-prompts` | exact menu layout, numbering and input rules for `Choice` prompts | 16 | 80 | 9/12 |
+
+The five tasks touch five different click subsystems and five different kinds of behaviour. No two
+share a primary module, and their regression slices come from the coverage of different code.
