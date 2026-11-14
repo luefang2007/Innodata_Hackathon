@@ -39,23 +39,25 @@ def setup(force: bool = False) -> dict:
         out = proc.stdout.decode("utf-8", errors="replace")
         from .runner import _kit_parser
         statuses = {r.name: r.status.name for r in _kit_parser.parse_test_output(out, proc.stderr.decode(errors="replace"))}
-        jfile = wc / "cov.json"
-        subprocess.run([sys.executable, "-m", "coverage", "json", "--show-contexts", "-o", str(jfile)],
-                       cwd=wc, env=env, capture_output=True, check=True)
-        raw = json.loads(jfile.read_text())
+        # Read the per-line contexts straight from the coverage database. `coverage json
+        # --show-contexts` repeats a file's whole context table inside every function and class
+        # region, which makes the export several GB for click and needs more RAM than most machines have.
+        import coverage
+        data = coverage.CoverageData(basename=str(covfile))
+        data.read()
         lines: dict[str, dict[str, list[str]]] = {}
-        for fname, fdata in raw["files"].items():
-            rel = Path(fname)
+        for fname in sorted(data.measured_files()):
             try:
-                rel = Path(fname).resolve().relative_to(wc.resolve())
+                rel_s = Path(fname).resolve().relative_to(wc.resolve()).as_posix()
             except ValueError:
-                pass
-            rel_s = rel.as_posix()
+                # not under the work copy as spelled (e.g. a Windows short path): keep the repo-relative tail
+                posix = Path(fname).as_posix()
+                rel_s = posix[posix.rfind("/src/") + 1:] if "/src/" in posix else posix
             per_line = {}
-            for ln, ctxs in (fdata.get("contexts") or {}).items():
+            for ln, ctxs in data.contexts_by_lineno(fname).items():
                 tests = sorted({_CTX_SUFFIX.sub("", c) for c in ctxs if c})
                 if tests:
-                    per_line[ln] = tests
+                    per_line[str(ln)] = tests
             lines[rel_s] = per_line
     config.COVMAP_FILE.write_text(json.dumps(lines))
     passed = sorted(t for t, s in statuses.items() if s == "PASSED")
