@@ -1,0 +1,319 @@
+diff --git a/tests/test_line_completion_protocol.py b/tests/test_line_completion_protocol.py
+new file mode 100644
+index 0000000..e6ce240
+--- /dev/null
++++ b/tests/test_line_completion_protocol.py
+@@ -0,0 +1,313 @@
++import pytest
++
++import click
++from click.shell_completion import CompletionItem
++
++
++def _paint_cli():
++    @click.group()
++    def cli():
++        pass
++
++    @cli.command()
++    @click.option("--color", type=click.Choice(["red", "green", "rose"]))
++    @click.option("--secret", hidden=True)
++    @click.argument("path", type=click.Path())
++    def paint(color, secret, path):
++        pass
++
++    @cli.command()
++    def status():
++        pass
++
++    @cli.command(hidden=True)
++    def secret():
++        pass
++
++    return cli
++
++
++def _echo_cli():
++    @click.command()
++    @click.argument(
++        "words",
++        nargs=-1,
++        shell_complete=lambda ctx, param, incomplete: [f"got:{incomplete}"],
++    )
++    def cli(words):
++        pass
++
++    return cli
++
++
++def _complete(runner, cli, line, point=None, prog_name="tool", **extra):
++    env = {
++        "_TOOL_COMPLETE": "line_complete",
++        "COMP_LINE": line,
++        "COMP_POINT": point,
++    }
++    return runner.invoke(cli, env=env, prog_name=prog_name, **extra)
++
++
++def test_public_names_and_registration():
++    from click.shell_completion import CompletionRequestError
++    from click.shell_completion import get_completion_class
++    from click.shell_completion import LineComplete
++    from click.shell_completion import ShellComplete
++
++    assert get_completion_class("line") is LineComplete
++    assert issubclass(LineComplete, ShellComplete)
++    assert LineComplete.name == "line"
++    assert LineComplete.source_template == (
++        "complete -o default -o nosort -C"
++        " '%(complete_var)s=line_complete %(prog_name)s' %(prog_name)s\n"
++    )
++    assert issubclass(CompletionRequestError, click.ClickException)
++    err = CompletionRequestError("boom")
++    assert err.exit_code == 1
++    assert err.message == "boom"
++
++
++def test_subcommands_completed_at_end_of_line_hidden_excluded(runner):
++    result = _complete(runner, _paint_cli(), "tool ", "5")
++    assert result.exit_code == 0
++    assert result.stdout == "paint\nstatus\n"
++    assert result.stderr == ""
++
++
++def test_option_value_with_equals_prints_bare_value(runner):
++    result = _complete(runner, _paint_cli(), "tool paint --color=r")
++    assert result.exit_code == 0
++    assert result.stdout == "red\nrose\n"
++
++
++@pytest.mark.parametrize("point", ["7", "007"])
++def test_comp_point_truncates_line(runner, point):
++    result = _complete(runner, _paint_cli(), "tool st --help", point)
++    assert result.exit_code == 0
++    assert result.stdout == "status\n"
++
++
++@pytest.mark.parametrize("point", [None, "", "7"])
++def test_unset_or_empty_point_means_end_of_line(runner, point):
++    result = _complete(runner, _paint_cli(), "tool st", point)
++    assert result.exit_code == 0
++    assert result.stdout == "status\n"
++
++
++def test_missing_comp_line_is_reported_before_point(runner):
++    result = _complete(runner, _paint_cli(), None, "abc")
++    assert result.exit_code == 1
++    assert result.stdout == ""
++    assert result.stderr == "Error: COMP_LINE is not set.\n"
++
++
++@pytest.mark.parametrize("point", ["-1", "+3", " 3", "3 ", "1.0", "abc", "0x2"])
++def test_invalid_comp_point_value(runner, point):
++    result = _complete(runner, _paint_cli(), "tool st", point)
++    assert result.exit_code == 1
++    assert result.stdout == ""
++    assert result.stderr == (
++        f"Error: Invalid COMP_POINT value {point!r}:"
++        " expected a non-negative integer.\n"
++    )
++
++
++@pytest.mark.parametrize(
++    ("line", "point", "message"),
++    [
++        ("tool st", "12", "COMP_POINT 12 is past the end of COMP_LINE (7 characters)."),
++        ("t", "0002", "COMP_POINT 2 is past the end of COMP_LINE (1 character)."),
++        ("", "1", "COMP_POINT 1 is past the end of COMP_LINE (0 characters)."),
++    ],
++)
++def test_comp_point_past_end_of_line(runner, line, point, message):
++    result = _complete(runner, _paint_cli(), line, point)
++    assert result.exit_code == 1
++    assert result.stdout == ""
++    assert result.stderr == f"Error: {message}\n"
++
++
++@pytest.mark.parametrize(
++    ("line", "point"),
++    [("", None), ("  ", None), ("to", None), ("tool st", "0"), ("tool st", "2")],
++)
++def test_no_complete_words_prints_nothing(runner, line, point):
++    result = _complete(runner, _paint_cli(), line, point)
++    assert result.exit_code == 0
++    assert result.stdout == ""
++    assert result.stderr == ""
++
++
++def test_program_word_is_not_checked(runner):
++    result = _complete(runner, _paint_cli(), "./bin/other-name st")
++    assert result.exit_code == 0
++    assert result.stdout == "status\n"
++
++
++@pytest.mark.parametrize(
++    ("line", "expected"),
++    [
++        ("tool pa", "got:pa\n"),
++        ("tool pa ", "got:\n"),
++        ("tool pa\t", "got:\n"),
++        ("tool 'my ", "got:my \n"),
++        ("tool my\\ ", "got:my \n"),
++        ("tool ''", "got:\n"),
++        ('tool "a b"', "got:a b\n"),
++    ],
++)
++def test_tokenisation_of_incomplete_word(runner, line, expected):
++    result = _complete(runner, _echo_cli(), line)
++    assert result.exit_code == 0
++    assert result.stdout == expected
++
++
++def test_output_keeps_only_single_line_plain_items(runner):
++    def complete_items(ctx, param, incomplete):
++        return [
++            CompletionItem("alpha", help="first item"),
++            CompletionItem("f", type="file"),
++            CompletionItem("x\ny"),
++            CompletionItem("c\rd"),
++            CompletionItem(42),
++            CompletionItem("d", type="dir"),
++            CompletionItem("it's \"here\"", type="plain"),
++        ]
++
++    @click.command()
++    @click.argument("value", shell_complete=complete_items)
++    def cli(value):
++        pass
++
++    result = _complete(runner, cli, "tool ")
++    assert result.exit_code == 0
++    assert result.stdout == "alpha\n42\nit's \"here\"\n"
++
++
++def test_path_completion_yields_empty_stdout(runner):
++    result = _complete(runner, _paint_cli(), "tool paint 'my ")
++    assert result.exit_code == 0
++    assert result.stdout == ""
++    assert result.stderr == ""
++
++
++def test_option_names_hidden_repeated_and_double_dash(runner):
++    cli = _paint_cli()
++    result = _complete(runner, cli, "tool paint --")
++    assert result.exit_code == 0
++    assert result.stdout == "--color\n--help\n"
++
++    result = _complete(runner, cli, "tool paint --color red --")
++    assert result.exit_code == 0
++    assert result.stdout == "--help\n"
++
++    result = _complete(runner, cli, "tool paint -- --")
++    assert result.exit_code == 0
++    assert result.stdout == ""
++
++
++def test_chained_group_and_forwarded_context_kwargs(runner):
++    @click.group(chain=True)
++    def cli():
++        pass
++
++    @cli.command()
++    def a():
++        pass
++
++    @cli.command()
++    def b():
++        pass
++
++    @cli.command()
++    def c():
++        pass
++
++    result = _complete(runner, cli, "tool a ")
++    assert result.exit_code == 0
++    assert result.stdout == "b\nc\n"
++
++    @click.command()
++    @click.argument(
++        "value",
++        shell_complete=lambda ctx, param, incomplete: [f"{ctx.obj}-{incomplete}"],
++    )
++    def obj_cli(value):
++        pass
++
++    result = _complete(runner, obj_cli, "tool v", obj="X")
++    assert result.exit_code == 0
++    assert result.stdout == "X-v\n"
++
++
++def test_line_source_prints_template(runner):
++    cli = _paint_cli()
++    result = runner.invoke(
++        cli,
++        ["ignored", "args"],
++        env={"_TOOL_COMPLETE": "line_source", "COMP_LINE": None, "COMP_POINT": "x"},
++        prog_name="tool",
++    )
++    assert result.exit_code == 0
++    assert result.stdout == (
++        "complete -o default -o nosort -C '_TOOL_COMPLETE=line_complete tool' tool\n"
++    )
++
++    result = runner.invoke(
++        cli,
++        env={"_MY_VAR": "line_source"},
++        prog_name="my-tool",
++        complete_var="_MY_VAR",
++    )
++    assert result.exit_code == 0
++    assert result.stdout == (
++        "complete -o default -o nosort -C '_MY_VAR=line_complete my-tool' my-tool\n"
++    )
++
++
++def test_unknown_line_instruction_exits_with_1(runner):
++    result = runner.invoke(
++        _paint_cli(),
++        env={"_TOOL_COMPLETE": "line_bogus", "COMP_LINE": "tool "},
++        prog_name="tool",
++    )
++    assert result.exit_code == 1
++    assert result.stdout == ""
++    assert result.stderr == ""
++
++
++def test_request_error_from_custom_shell_class(runner):
++    from click.shell_completion import add_completion_class
++    from click.shell_completion import CompletionRequestError
++    from click.shell_completion import ShellComplete
++
++    class StrictComplete(ShellComplete):
++        name = "strictsh"
++        source_template = "unused"
++
++        def source(self):
++            raise CompletionRequestError("cannot source here")
++
++        def get_completion_args(self):
++            raise CompletionRequestError("bad request")
++
++        def format_completion(self, item):
++            return item.value
++
++    add_completion_class(StrictComplete)
++    cli = _paint_cli()
++
++    result = runner.invoke(
++        cli, env={"_TOOL_COMPLETE": "strictsh_complete"}, prog_name="tool"
++    )
++    assert result.exit_code == 1
++    assert result.stdout == ""
++    assert result.stderr == "Error: bad request\n"
++
++    result = runner.invoke(
++        cli, env={"_TOOL_COMPLETE": "strictsh_source"}, prog_name="tool"
++    )
++    assert result.exit_code == 1
++    assert result.stdout == ""
++    assert result.stderr == "Error: cannot source here\n"

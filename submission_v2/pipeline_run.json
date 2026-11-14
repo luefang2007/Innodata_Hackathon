@@ -1,0 +1,76 @@
+{
+ "pipeline": "click-task-factory/0.1",
+ "tasks": [
+  {
+   "instance_id": "pallets__click-0101-group-subcommand-lifecycle-hooks",
+   "model": "anthropic/claude-opus-5.5",
+   "wall_seconds": 815.1,
+   "model_calls": 9,
+   "attempts": 2,
+   "n_input_tokens": 1012598,
+   "n_output_tokens": 191515,
+   "n_cache_tokens": 319266,
+   "cost_usd": 3.0179,
+   "jury_model": "anthropic/claude-haiku-5.5",
+   "jury_cost_usd": 0.1103,
+   "weak_solve_rate": 0.3333333333333333
+  },
+  {
+   "instance_id": "pallets__click-0102-help-effective-value-origin",
+   "model": "anthropic/claude-opus-5.5",
+   "wall_seconds": 1085.1,
+   "model_calls": 10,
+   "attempts": 3,
+   "n_input_tokens": 1204250,
+   "n_output_tokens": 301255,
+   "n_cache_tokens": 319266,
+   "cost_usd": 4.5345,
+   "jury_model": "anthropic/claude-haiku-5.5",
+   "jury_cost_usd": 0.1514,
+   "weak_solve_rate": 1.0
+  },
+  {
+   "instance_id": "pallets__click-0103-line-completion-protocol",
+   "model": "anthropic/claude-opus-5.5",
+   "wall_seconds": 1015.2,
+   "model_calls": 7,
+   "attempts": 2,
+   "n_input_tokens": 927887,
+   "n_output_tokens": 207912,
+   "n_cache_tokens": 319266,
+   "cost_usd": 4.579,
+   "jury_model": "anthropic/claude-haiku-5.5",
+   "jury_cost_usd": 0.0678,
+   "weak_solve_rate": 1.0
+  },
+  {
+   "instance_id": "pallets__click-0104-option-shorthand-expansions",
+   "model": "anthropic/claude-opus-5.5",
+   "wall_seconds": 932.9,
+   "model_calls": 6,
+   "attempts": 1,
+   "n_input_tokens": 761553,
+   "n_output_tokens": 289605,
+   "n_cache_tokens": 319266,
+   "cost_usd": 4.0045,
+   "jury_model": "anthropic/claude-haiku-5.5",
+   "jury_cost_usd": 0.1032,
+   "weak_solve_rate": 1.0
+  },
+  {
+   "instance_id": "pallets__click-0105-numbered-choice-prompts",
+   "model": "anthropic/claude-opus-5.5",
+   "wall_seconds": 926.9,
+   "model_calls": 7,
+   "attempts": 1,
+   "n_input_tokens": 837270,
+   "n_output_tokens": 202175,
+   "n_cache_tokens": 241528,
+   "cost_usd": 3.9796,
+   "jury_model": "anthropic/claude-haiku-5.5",
+   "jury_cost_usd": 0.0789,
+   "weak_solve_rate": 1.0
+  }
+ ],
+ "discarded_candidates": []
+}

@@ -1,0 +1,265 @@
+diff --git a/src/click/__init__.py b/src/click/__init__.py
+index a34ab02..b885701 100644
+--- a/src/click/__init__.py
++++ b/src/click/__init__.py
+@@ -36,6 +36,7 @@ from .exceptions import FileError as FileError
+ from .exceptions import MissingParameter as MissingParameter
+ from .exceptions import NoSuchCommand as NoSuchCommand
+ from .exceptions import NoSuchOption as NoSuchOption
++from .exceptions import SkipSubcommand as SkipSubcommand
+ from .exceptions import UsageError as UsageError
+ from .formatting import HelpFormatter as HelpFormatter
+ from .formatting import wrap_text as wrap_text
+diff --git a/src/click/core.py b/src/click/core.py
+index e4b6b57..d796592 100644
+--- a/src/click/core.py
++++ b/src/click/core.py
+@@ -30,6 +30,7 @@ from .exceptions import Exit
+ from .exceptions import MissingParameter
+ from .exceptions import NoArgsIsHelpError
+ from .exceptions import NoSuchCommand
++from .exceptions import SkipSubcommand
+ from .exceptions import UsageError
+ from .formatting import HelpFormatter
+ from .formatting import join_options
+@@ -1689,8 +1690,21 @@ class Group(Command):
+         all the commands. If ``invoke_without_command`` is enabled, the value
+         will be the value returned by the group's callback, or an empty list if
+         ``chain`` is enabled.
++    :param before_subcommand: A hook called as ``hook(sub_ctx)`` right before
++        each direct subcommand is invoked. Registered before any hook added
++        with :meth:`before_subcommand`.
++    :param after_subcommand: A hook called as ``hook(sub_ctx, result)`` after
++        each direct subcommand returns normally. Registered before any hook
++        added with :meth:`after_subcommand`.
++    :param teardown_subcommand: A hook called as ``hook(sub_ctx, exc)`` once
++        each started direct subcommand has finished, successfully or not.
++        Registered before any hook added with :meth:`teardown_subcommand`.
+     :param kwargs: Other arguments passed to :class:`Command`.
+ 
++    .. versionchanged:: 8.6.0
++        Added the ``before_subcommand``, ``after_subcommand`` and
++        ``teardown_subcommand`` parameters.
++
+     .. versionchanged:: 8.0
+         The ``commands`` argument can be a list of command objects.
+ 
+@@ -1726,6 +1740,11 @@ class Group(Command):
+     subcommand_metavar: str
+     chain: bool
+     _result_callback: t.Callable[..., t.Any] | None
++    _before_subcommand_hooks: list[t.Callable[[Context], t.Any]]
++    _after_subcommand_hooks: list[t.Callable[[Context, t.Any], t.Any]]
++    _teardown_subcommand_hooks: list[
++        t.Callable[[Context, BaseException | None], t.Any]
++    ]
+ 
+     def __init__(
+         self,
+@@ -1738,6 +1757,10 @@ class Group(Command):
+         subcommand_metavar: str | None = None,
+         chain: bool = False,
+         result_callback: t.Callable[..., t.Any] | None = None,
++        before_subcommand: t.Callable[[Context], t.Any] | None = None,
++        after_subcommand: t.Callable[[Context, t.Any], t.Any] | None = None,
++        teardown_subcommand: t.Callable[[Context, BaseException | None], t.Any]
++        | None = None,
+         **kwargs: t.Any,
+     ) -> None:
+         super().__init__(name, **kwargs)
+@@ -1774,6 +1797,20 @@ class Group(Command):
+         # The result callback that is stored. This can be set or
+         # overridden with the :func:`result_callback` decorator.
+         self._result_callback = result_callback
++        # Hooks run around each direct subcommand invocation. A hook passed to
++        # the constructor is registered before any hook added with a method.
++        self._before_subcommand_hooks = []
++        self._after_subcommand_hooks = []
++        self._teardown_subcommand_hooks = []
++
++        if before_subcommand is not None:
++            self._before_subcommand_hooks.append(before_subcommand)
++
++        if after_subcommand is not None:
++            self._after_subcommand_hooks.append(after_subcommand)
++
++        if teardown_subcommand is not None:
++            self._teardown_subcommand_hooks.append(teardown_subcommand)
+ 
+         if self.chain:
+             for param in self.params:
+@@ -1956,6 +1993,122 @@ class Group(Command):
+ 
+         return decorator
+ 
++    def before_subcommand(self, f: F) -> F:
++        """Register ``f`` to be called as ``f(sub_ctx)`` right before each
++        direct subcommand of this group is invoked. Before hooks run in
++        registration order. Returns ``f`` unchanged so it can be used as a
++        decorator.
++
++        .. versionadded:: 8.6.0
++        """
++        self._before_subcommand_hooks.append(f)
++        return f
++
++    def after_subcommand(self, f: F) -> F:
++        """Register ``f`` to be called as ``f(sub_ctx, result)`` after each
++        direct subcommand of this group returns normally. After hooks run in
++        reverse registration order. Returns ``f`` unchanged.
++
++        .. versionadded:: 8.6.0
++        """
++        self._after_subcommand_hooks.append(f)
++        return f
++
++    def teardown_subcommand(self, f: F) -> F:
++        """Register ``f`` to be called as ``f(sub_ctx, exc)`` once each
++        started direct subcommand of this group has finished, whether it
++        succeeded or failed. ``exc`` is the propagating exception or
++        ``None``. Teardown hooks run in reverse registration order. Returns
++        ``f`` unchanged.
++
++        .. versionadded:: 8.6.0
++        """
++        self._teardown_subcommand_hooks.append(f)
++        return f
++
++    def _invoke_subcommand(self, sub_ctx: Context) -> t.Any:
++        """Invoke a direct subcommand inside its hook sequence. Must be
++        called while ``sub_ctx`` is entered.
++
++        :meta private:
++        """
++        # Snapshot: hooks registered while this subcommand runs only apply
++        # to subcommands that start later.
++        before = list(self._before_subcommand_hooks)
++        after = list(self._after_subcommand_hooks)
++        teardown = list(self._teardown_subcommand_hooks)
++
++        if not (before or after or teardown):
++            return sub_ctx.command.invoke(sub_ctx)
++
++        try:
++            rv = self._run_subcommand_body(sub_ctx, before, after)
++        except BaseException as e:
++            if not teardown:
++                raise
++
++            final = self._run_teardown_hooks(sub_ctx, teardown, e)
++
++            if final is e or final is None:
++                raise
++
++            raise final
++
++        final = self._run_teardown_hooks(sub_ctx, teardown, None)
++
++        if final is not None:
++            raise final
++
++        return rv
++
++    def _run_subcommand_body(
++        self,
++        sub_ctx: Context,
++        before: list[t.Callable[[Context], t.Any]],
++        after: list[t.Callable[[Context, t.Any], t.Any]],
++    ) -> t.Any:
++        """Run the before hooks, the subcommand and the after hooks.
++
++        :meta private:
++        """
++        try:
++            with augment_usage_errors(sub_ctx):
++                for hook in before:
++                    hook(sub_ctx)
++        except SkipSubcommand as e:
++            return e.result
++
++        rv = sub_ctx.command.invoke(sub_ctx)
++
++        with augment_usage_errors(sub_ctx):
++            for hook in reversed(after):
++                hook(sub_ctx, rv)
++
++        return rv
++
++    def _run_teardown_hooks(
++        self,
++        sub_ctx: Context,
++        teardown: list[t.Callable[[Context, BaseException | None], t.Any]],
++        exc: BaseException | None,
++    ) -> BaseException | None:
++        """Run every teardown hook, even if some raise. Each hook receives the
++        exception propagating at that moment. Returns the exception that must
++        propagate afterwards, or ``None``.
++
++        :meta private:
++        """
++        pending = exc
++
++        for hook in reversed(teardown):
++            try:
++                with augment_usage_errors(sub_ctx):
++                    hook(sub_ctx, pending)
++            except BaseException as e:
++                pending = e
++
++        return pending
++
+     def get_command(self, ctx: Context, cmd_name: str) -> Command | None:
+         """Given a context and a command name, this returns a :class:`Command`
+         object if it exists or returns ``None``.
+@@ -2051,7 +2204,7 @@ class Group(Command):
+                 super().invoke(ctx)
+                 sub_ctx = cmd.make_context(cmd_name, args, parent=ctx)
+                 with sub_ctx:
+-                    return _process_result(sub_ctx.command.invoke(sub_ctx))
++                    return _process_result(self._invoke_subcommand(sub_ctx))
+ 
+         # In chain mode we create the contexts step by step, but after the
+         # base command has been invoked.  Because at that point we do not
+@@ -2082,7 +2235,7 @@ class Group(Command):
+             rv = []
+             for sub_ctx in contexts:
+                 with sub_ctx:
+-                    rv.append(sub_ctx.command.invoke(sub_ctx))
++                    rv.append(self._invoke_subcommand(sub_ctx))
+             return _process_result(rv)
+ 
+     def resolve_command(
+diff --git a/src/click/exceptions.py b/src/click/exceptions.py
+index 6272c38..5f3469f 100644
+--- a/src/click/exceptions.py
++++ b/src/click/exceptions.py
+@@ -359,6 +359,29 @@ class FileError(ClickException):
+         )
+ 
+ 
++class SkipSubcommand(ClickException):
++    """Raised from a ``before_subcommand`` hook of a :class:`~click.Group`
++    to skip the subcommand that is about to run. The remaining before hooks,
++    the subcommand and its after hooks do not run, the teardown hooks run
++    with ``exc=None``, and ``result`` is reported as the subcommand's return
++    value.
++
++    Raised anywhere else, it is an ordinary error.
++
++    :param result: The value reported for the skipped subcommand.
++
++    .. versionadded:: 8.6.0
++    """
++
++    result: t.Any
++
++    def __init__(self, result: t.Any = None) -> None:
++        super().__init__(
++            _("SkipSubcommand raised outside of a before_subcommand hook.")
++        )
++        self.result = result
++
++
+ class Abort(RuntimeError):
+     """An internal signalling exception that signals Click to abort."""
+ 

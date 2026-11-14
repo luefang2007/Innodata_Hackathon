@@ -1,0 +1,21 @@
+[
+ "tests/test_shell_completion.py::test_context_settings",
+ "tests/test_shell_completion.py::test_full_complete[bash-env0-plain,a\\nplain,b\\n]",
+ "tests/test_shell_completion.py::test_full_complete[bash-env1-plain,b\\n]",
+ "tests/test_shell_completion.py::test_full_complete[fish-env4-plain,a\\nplain,b\\tbee\\n]",
+ "tests/test_shell_completion.py::test_full_complete[fish-env5-plain,b\\tbee\\n]",
+ "tests/test_shell_completion.py::test_full_complete[fish-env6-plain,b\\tbee\\n]",
+ "tests/test_shell_completion.py::test_full_complete[powershell-env7-plain\\na\\n_\\nplain\\nb\\nbee\\n]",
+ "tests/test_shell_completion.py::test_full_complete[powershell-env8-plain\\nb\\nbee\\n]",
+ "tests/test_shell_completion.py::test_full_complete[zsh-env2-plain\\na\\n_\\nplain\\nb\\nbee\\n]",
+ "tests/test_shell_completion.py::test_full_complete[zsh-env3-plain\\nb\\nbee\\n]",
+ "tests/test_shell_completion.py::test_full_source[bash]",
+ "tests/test_shell_completion.py::test_full_source[fish]",
+ "tests/test_shell_completion.py::test_full_source[zsh]",
+ "tests/test_shell_completion.py::test_full_source_powershell",
+ "tests/test_shell_completion.py::test_powershell_format_completion_escapes_help",
+ "tests/test_shell_completion.py::test_source_uses_lf_line_endings",
+ "tests/test_shell_completion.py::test_zsh_full_complete_with_colons[env0-plain\\na\\n_\\nplain\\nb\\nbee\\nplain\\nc\\\\:d\\ncee:dee\\nplain\\nc:e\\n_\\n]",
+ "tests/test_shell_completion.py::test_zsh_full_complete_with_colons[env1-plain\\nc\\\\:d\\ncee:dee\\nplain\\nc:e\\n_\\n]",
+ "tests/test_shell_completion.py::test_zsh_full_complete_with_colons[env2-plain\\nc\\\\:d\\ncee:dee\\nplain\\nc:e\\n_\\n]"
+]

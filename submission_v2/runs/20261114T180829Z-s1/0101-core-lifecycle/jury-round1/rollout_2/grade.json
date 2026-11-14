@@ -1,0 +1,17 @@
+{
+ "applied": true,
+ "reward": 0.9545,
+ "resolved": false,
+ "f2p_failed": [
+  "tests/test_group_subcommand_lifecycle_hooks.py::test_hooks_registered_during_invocation_apply_to_later_subcommands"
+ ],
+ "p2p_failed": [],
+ "wide_failed": [],
+ "touched": [
+  "src/click/exceptions.py",
+  "src/click/__init__.py",
+  "src/click/core.py"
+ ],
+ "rollout": 2,
+ "tries": 1
+}

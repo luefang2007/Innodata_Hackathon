@@ -90,7 +90,8 @@ def _jury_rounds(valid: tuple, test_path: str, system: list[dict], tel: llm.Tele
         mech_name, mech_text = matrix.depth_for(shape, rnd + 1)
         record["jury"][-1]["deepen_with"] = mech_name
         try:
-            impl = llm.call_json(system, prompts.deepen(spec, impl, probe, test_path, mech_text),
+            impl = llm.call_json(system, prompts.deepen(cand.spec, cand.gold_patch, cand.test_content, probe,
+                                                        test_path, mech_text),
                                  prompts.IMPL_SCHEMA, tel, log_dir, f"deepen{rnd + 1}")
         except llm.LLMError as exc:
             record["jury_note"] = f"deepening stopped: {exc}"[:300]

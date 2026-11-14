@@ -1,0 +1,85 @@
+[gold_tests] FAILED
+tests failing with the gold applied:
+tests/test_help_effective_value_origin.py::test_callback_errors_and_missing_values_from_environment
+
+pytest output (tail):
+PASSED tests/test_context.py::test_propagate_show_default_setting
+PASSED tests/test_defaults.py::test_lookup_default_override_respected
+PASSED tests/test_options.py::test_counting
+PASSED tests/test_defaults.py::test_lookup_default_callable_in_default_map
+PASSED tests/test_arguments.py::test_nested_subcommand_help
+PASSED tests/test_arguments.py::test_subcommand_help
+PASSED tests/test_basic.py::test_basic_group
+PASSED tests/test_chain.py::test_chaining_help[args2-SDIST HELP]
+PASSED tests/test_chain.py::test_chaining_help[args3-BDIST HELP]
+PASSED tests/test_chain.py::test_chaining_help[args4-SDIST HELP]
+PASSED tests/test_commands.py::test_aliased_command_canonical_name
+PASSED tests/test_formatting.py::test_wrapping_long_command_name
+PASSED tests/test_formatting.py::test_wrapping_long_options_strings
+PASSED tests/test_basic.py::test_choice_argument
+PASSED tests/test_basic.py::test_choice_argument_custom_type
+PASSED tests/test_basic.py::test_choice_argument_enum
+PASSED tests/test_basic.py::test_choice_option
+PASSED tests/test_basic.py::test_datetime_option_default
+PASSED tests/test_normalization.py::test_choice_normalization
+PASSED tests/test_basic.py::test_choice_argument_none
+PASSED tests/test_options.py::test_choice_usage_rendering[Color-[COLOR]]
+PASSED tests/test_options.py::test_choice_usage_rendering[ColorInt-[COLORINT]]
+PASSED tests/test_options.py::test_choice_usage_rendering[HashType-[HASHTYPE]]
+PASSED tests/test_options.py::test_choice_usage_rendering[Letter-[LETTER]]
+PASSED tests/test_options.py::test_choice_usage_rendering[Number-[NUMBER]]
+PASSED tests/test_options.py::test_choice_usage_rendering[choices0-[TEXT]]
+PASSED tests/test_options.py::test_choice_usage_rendering[choices1-[INTEGER]]
+PASSED tests/test_options.py::test_choice_usage_rendering[choices2-[FLOAT]]
+PASSED tests/test_options.py::test_choice_usage_rendering[choices3-[BOOLEAN]]
+PASSED tests/test_options.py::test_choice_usage_rendering[choices4-[TEXT|INTEGER]]
+PASSED tests/test_basic.py::test_help_invalid_default
+PASSED tests/test_formatting.py::test_global_show_default
+PASSED tests/test_options.py::test_callable_flag_value_show_default
+PASSED tests/test_options.py::test_choice_default_rendering[Color-GREEN-GREEN]
+PASSED tests/test_options.py::test_choice_default_rendering[ColorInt-GREEN-GREEN]
+PASSED tests/test_options.py::test_choice_default_rendering[HashType-SHA256-SHA256]
+PASSED tests/test_options.py::test_choice_default_rendering[Letter-NAME_1-NAME_1]
+PASSED tests/test_options.py::test_choice_default_rendering[Letter-NAME_2-NAME_2]
+PASSED tests/test_options.py::test_choice_default_rendering[Letter-NAME_3-NAME_3]
+PASSED tests/test_options.py::test_choice_default_rendering[Number-TWO-TWO]
+PASSED tests/test_options.py::test_choice_default_rendering[choices0-bar-bar]
+PASSED tests/test_options.py::test_choice_default_rendering[choices1-random-random]
+PASSED tests/test_options.py::test_choice_default_rendering[choices10-foo-foo]
+PASSED tests/test_options.py::test_choice_default_rendering[choices11-1-1]
+PASSED tests/test_options.py::test_choice_default_rendering[choices3-0-0]
+PASSED tests/test_options.py::test_choice_default_rendering[choices4-0.0-0.0]
+PASSED tests/test_options.py::test_choice_default_rendering[choices5-2-2]
+PASSED tests/test_options.py::test_choice_default_rendering[choices6-2-2]
+PASSED tests/test_options.py::test_choice_default_rendering[choices7-2.0-2.0]
+PASSED tests/test_options.py::test_choice_default_rendering[choices8-True-True]
+PASSED tests/test_options.py::test_choice_default_rendering[choices9-False-False]
+PASSED tests/test_options.py::test_show_default_container_defaults
+PASSED tests/test_commands.py::test_group_with_args[args1-0-Show this message and exit.]
+PASSED tests/test_options.py::test_dynamic_default_help_unset
+PASSED tests/test_options.py::test_prefixes
+PASSED tests/test_options.py::test_show_envvar_auto_prefix
+PASSED tests/test_options.py::test_show_envvar_empty[WEATHER-  --units TEXT  [env var: WEATHER_UNITS]\n-None]
+PASSED tests/test_options.py::test_show_envvar_empty[WEATHER-  --units TEXT  [env var: WEATHER_UNITS]\n-]
+PASSED tests/test_options.py::test_show_envvar_empty[WEATHER-  --units TEXT  [env var: WEATHER_UNITS]\n-envvar1]
+PASSED tests/test_options.py::test_show_default_default_map
+PASSED tests/test_basic.py::test_basic_functionality
+PASSED tests/test_basic.py::test_param_named_help[argument]
+PASSED tests/test_basic.py::test_param_named_help[custom-flags]
+PASSED tests/test_basic.py::test_param_named_help[option]
+PASSED tests/test_context.py::test_no_state_leaks
+PASSED tests/test_options.py::test_winstyle_options
+PASSED tests/test_options.py::test_choice_default_rendering[Color-Color.GREEN-GREEN]
+PASSED tests/test_options.py::test_choice_default_rendering[ColorInt-2-GREEN]
+PASSED tests/test_options.py::test_choice_default_rendering[HashType-HashType.SHA1-SHA1]
+PASSED tests/test_options.py::test_choice_default_rendering[HashType-HashType.SHA256-SHA256]
+PASSED tests/test_options.py::test_choice_default_rendering[Letter-42_value-NAME_3]
+PASSED tests/test_options.py::test_choice_default_rendering[Letter-Value-1-NAME_1]
+PASSED tests/test_options.py::test_choice_default_rendering[Letter-Value_2-NAME_2]
+PASSED tests/test_options.py::test_choice_default_rendering[Number-2-TWO]
+PASSED tests/test_options.py::test_dynamic_default_help_text
+PASSED tests/test_basic.py::test_param_named_help[no-collision]
+PASSED tests/test_commands.py::test_help_param_priority
+PASSED tests/test_options.py::test_multiple_default_help
+FAILED tests/test_help_effective_value_origin.py::test_callback_errors_and_missing_values_from_environment
+======================== 1 failed, 99 passed in 0.97s =========================

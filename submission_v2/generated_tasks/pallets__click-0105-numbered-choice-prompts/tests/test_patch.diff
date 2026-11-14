@@ -1,0 +1,335 @@
+diff --git a/tests/test_numbered_choice_prompts.py b/tests/test_numbered_choice_prompts.py
+new file mode 100644
+index 0000000..7974c5c
+--- /dev/null
++++ b/tests/test_numbered_choice_prompts.py
+@@ -0,0 +1,329 @@
++import enum
++
++import pytest
++
++import click
++
++
++class Color(enum.Enum):
++    RED = "r"
++    GREEN = "g"
++
++
++MENU3 = "  1) red\n  2) green\n  3) blue\n"
++
++
++def _color_cli(**kwargs):
++    opts = dict(
++        type=click.Choice(["red", "green", "blue"]),
++        prompt=True,
++        prompt_numbered=True,
++        default="green",
++    )
++    opts.update(kwargs)
++
++    @click.command()
++    @click.option("--color", **opts)
++    def cli(color):
++        click.echo(f"color={color}")
++
++    return cli
++
++
++def test_prompt_numbered_requires_choice_type():
++    with pytest.raises(TypeError) as exc_info:
++        click.prompt("X", type=int, numbered=True)
++    assert str(exc_info.value) == "'numbered' requires a 'click.Choice' type."
++
++    with pytest.raises(TypeError) as exc_info:
++        click.prompt("X", numbered=True)
++    assert str(exc_info.value) == "'numbered' requires a 'click.Choice' type."
++
++
++def test_prompt_numbered_requires_at_least_one_choice():
++    with pytest.raises(ValueError) as exc_info:
++        click.prompt("X", type=click.Choice([]), numbered=True)
++    assert str(exc_info.value) == "'numbered' requires at least one choice."
++
++
++def test_option_prompt_numbered_validation_at_construction():
++    with pytest.raises(TypeError) as exc_info:
++        click.Option(["--x"], prompt_numbered=True)
++    assert str(exc_info.value) == "'prompt_numbered' requires a 'click.Choice' type."
++
++    message = (
++        "'prompt_numbered' cannot be used with 'multiple=True' or 'nargs' other than 1."
++    )
++    with pytest.raises(TypeError) as exc_info:
++        click.Option(
++            ["--x"], type=click.Choice(["a", "b"]), multiple=True, prompt_numbered=True
++        )
++    assert str(exc_info.value) == message
++
++    with pytest.raises(TypeError) as exc_info:
++        click.Option(["--x"], type=click.Choice(["a", "b"]), nargs=2, prompt_numbered=True)
++    assert str(exc_info.value) == message
++
++    opt = click.Option(["--x"], type=click.Choice(["a"]), prompt_numbered=True)
++    assert opt.prompt_numbered is True
++
++
++def test_menu_and_selection_by_number(runner):
++    result = runner.invoke(_color_cli(), input="3\n")
++    assert result.exit_code == 0, result.output
++    assert result.output == MENU3 + "Color [1-3] [2]: 3\ncolor=blue\n"
++
++
++def test_out_of_range_number_reprompts_without_menu(runner):
++    result = runner.invoke(_color_cli(), input="9\nred\n")
++    assert result.exit_code == 0, result.output
++    assert result.output == (
++        MENU3
++        + "Color [1-3] [2]: 9\n"
++        + "Error: '9' is not a valid selection. Enter a number from 1 to 3.\n"
++        + "Color [1-3] [2]: red\n"
++        + "color=red\n"
++    )
++
++
++def test_leading_zeros_and_names_and_invalid_names(runner):
++    result = runner.invoke(_color_cli(), input="02\n")
++    assert result.output == MENU3 + "Color [1-3] [2]: 02\ncolor=green\n"
++
++    result = runner.invoke(_color_cli(), input="purple\n 2\nblue\n")
++    assert result.exit_code == 0, result.output
++    assert result.output == (
++        MENU3
++        + "Color [1-3] [2]: purple\n"
++        + "Error: 'purple' is not one of 'red', 'green', 'blue'.\n"
++        + "Color [1-3] [2]:  2\n"
++        + "Error: ' 2' is not one of 'red', 'green', 'blue'.\n"
++        + "Color [1-3] [2]: blue\n"
++        + "color=blue\n"
++    )
++
++
++def test_empty_input_uses_default_never_read_as_number(runner):
++    result = runner.invoke(_color_cli(), input="\n")
++    assert result.output == MENU3 + "Color [1-3] [2]: \ncolor=green\n"
++
++    @click.command()
++    def cli():
++        value = click.prompt(
++            "N", type=click.Choice(["10", "20", "30"]), default="20", numbered=True
++        )
++        click.echo(value)
++
++    menu = "  1) 10\n  2) 20\n  3) 30\n"
++    result = runner.invoke(cli, input="\n")
++    assert result.exit_code == 0, result.output
++    assert result.output == menu + "N [1-3] [2]: \n20\n"
++
++    result = runner.invoke(cli, input="3\n")
++    assert result.output == menu + "N [1-3] [2]: 3\n30\n"
++
++
++def test_ten_choices_menu_alignment(runner):
++    @click.command()
++    @click.option(
++        "--level",
++        type=click.Choice([f"l{i}" for i in range(1, 11)]),
++        prompt="Level",
++        prompt_numbered=True,
++    )
++    def cli(level):
++        click.echo(f"level={level}")
++
++    result = runner.invoke(cli, input="10\n")
++    assert result.exit_code == 0, result.output
++    expected = "".join(f"  {i:>2}) l{i}\n" for i in range(1, 11))
++    assert expected.startswith("   1) l1\n")
++    assert result.output == expected + "Level [1-10]: 10\nlevel=l10\n"
++
++
++def test_enum_choices_use_names_and_return_members(runner):
++    @click.command()
++    @click.option(
++        "--color", type=click.Choice(Color), prompt="Pick", prompt_numbered=True
++    )
++    def cli(color):
++        click.echo(f"{color.name} {color is Color.GREEN}")
++
++    result = runner.invoke(cli, input="2\n")
++    assert result.exit_code == 0, result.output
++    assert result.output == "  1) RED\n  2) GREEN\nPick [1-2]: 2\nGREEN True\n"
++
++    result = runner.invoke(cli, input="RED\n")
++    assert result.output == "  1) RED\n  2) GREEN\nPick [1-2]: RED\nRED False\n"
++
++
++def test_command_line_and_envvar_values_are_not_numbered(runner):
++    result = runner.invoke(_color_cli(), ["--color", "2"])
++    assert result.exit_code == 2
++    assert result.output.splitlines()[-1] == (
++        "Error: Invalid value for '--color': '2' is not one of 'red', 'green', 'blue'."
++    )
++    assert "  1) red" not in result.output
++
++    @click.command()
++    @click.option(
++        "--color",
++        type=click.Choice(["red", "green"]),
++        prompt=True,
++        prompt_numbered=True,
++        envvar="APP_COLOR",
++    )
++    def cli(color):
++        click.echo(f"color={color}")
++
++    result = runner.invoke(cli, env={"APP_COLOR": "2"})
++    assert result.exit_code == 2
++    assert result.output.splitlines()[-1] == (
++        "Error: Invalid value for '--color': '2' is not one of 'red', 'green'."
++    )
++
++    result = runner.invoke(cli, env={"APP_COLOR": "green"})
++    assert result.exit_code == 0
++    assert result.output == "color=green\n"
++
++
++def test_default_map_default_previewed_as_number(runner):
++    @click.command()
++    @click.option(
++        "--color",
++        type=click.Choice(["red", "green", "blue"]),
++        prompt=True,
++        prompt_numbered=True,
++    )
++    def cli(color):
++        click.echo(f"color={color}")
++
++    result = runner.invoke(cli, input="\n", default_map={"color": "blue"})
++    assert result.exit_code == 0, result.output
++    assert result.output == MENU3 + "Color [1-3] [3]: \ncolor=blue\n"
++
++    result = runner.invoke(cli, input="1\n")
++    assert result.output == MENU3 + "Color [1-3]: 1\ncolor=red\n"
++
++
++def test_show_default_false_and_string(runner):
++    result = runner.invoke(_color_cli(show_default=False), input="1\n")
++    assert result.output == MENU3 + "Color [1-3]: 1\ncolor=red\n"
++
++    result = runner.invoke(_color_cli(show_default="auto"), input="\n")
++    assert result.output == MENU3 + "Color [1-3] [(auto)]: \ncolor=green\n"
++
++
++def test_prompt_required_false_flag_prompts_with_menu(runner):
++    @click.command()
++    @click.option(
++        "--color",
++        type=click.Choice(["red", "green", "blue"]),
++        prompt=True,
++        prompt_required=False,
++        prompt_numbered=True,
++    )
++    @click.pass_context
++    def cli(ctx, color):
++        click.echo(f"{color} {ctx.get_parameter_source('color').name}")
++
++    result = runner.invoke(cli, ["--color"], input="1\n")
++    assert result.exit_code == 0, result.output
++    assert result.output == MENU3 + "Color [1-3]: 1\nred PROMPT\n"
++
++    result = runner.invoke(cli, [])
++    assert result.output == "None DEFAULT\n"
++
++
++def test_confirmation_compares_raw_text(runner):
++    @click.command()
++    def cli():
++        value = click.prompt(
++            "Size",
++            type=click.Choice(["s", "m", "l"]),
++            numbered=True,
++            confirmation_prompt=True,
++        )
++        click.echo(value)
++
++    result = runner.invoke(cli, input="2\nm\n2\n2\n")
++    assert result.exit_code == 0, result.output
++    assert result.output == (
++        "  1) s\n  2) m\n  3) l\n"
++        "Size [1-3]: 2\n"
++        "Repeat for confirmation: m\n"
++        "Error: The two entered values do not match.\n"
++        "Size [1-3]: 2\n"
++        "Repeat for confirmation: 2\n"
++        "m\n"
++    )
++
++
++def test_hide_input_masks_error_and_err_stream(runner):
++    @click.command()
++    def hidden():
++        value = click.prompt(
++            "Pick", type=click.Choice(["a", "b"]), numbered=True, hide_input=True
++        )
++        click.echo(value)
++
++    result = runner.invoke(hidden, input="7\n1\n")
++    assert result.exit_code == 0, result.output
++    assert result.output == (
++        "  1) a\n  2) b\n"
++        "Pick [1-2]: \n"
++        "Error: '***' is not a valid selection. Enter a number from 1 to 2.\n"
++        "Pick [1-2]: \n"
++        "a\n"
++    )
++
++    @click.command()
++    def errcli():
++        value = click.prompt(
++            "Pick", type=click.Choice(["a", "b"]), numbered=True, err=True
++        )
++        click.echo(value)
++
++    result = runner.invoke(errcli, input="2\n")
++    assert result.exit_code == 0, result.output
++    assert result.stderr == "  1) a\n  2) b\nPick [1-2]: 2\n"
++    assert result.stdout == "b\n"
++
++
++def test_help_completion_and_info_dict_unchanged(runner):
++    def make(numbered):
++        @click.command("cli")
++        @click.option(
++            "--color",
++            type=click.Choice(["red", "green", "blue"]),
++            prompt=True,
++            prompt_numbered=numbered,
++            default="green",
++            show_default=True,
++            help="Pick a color.",
++        )
++        def cli(color):
++            pass
++
++        return cli
++
++    plain, numbered = make(False), make(True)
++
++    plain_help = runner.invoke(plain, ["--help"], terminal_width=80).output
++    numbered_help = runner.invoke(numbered, ["--help"], terminal_width=80).output
++    assert numbered_help == plain_help
++
++    assert (
++        click.Context(numbered).to_info_dict() == click.Context(plain).to_info_dict()
++    )
++
++    ctx_p = click.Context(plain, terminal_width=80)
++    ctx_n = click.Context(numbered, terminal_width=80)
++    opt_p, opt_n = plain.params[0], numbered.params[0]
++    assert opt_n.get_help_record(ctx_n) == opt_p.get_help_record(ctx_p)
++    assert [c.value for c in opt_n.shell_complete(ctx_n, "g")] == ["green"]
++    assert [c.value for c in opt_n.shell_complete(ctx_n, "")] == [
++        "red",
++        "green",
++        "blue",
++    ]

@@ -1,0 +1,15 @@
+{
+ "applied": true,
+ "reward": 1.0,
+ "resolved": true,
+ "f2p_failed": [],
+ "p2p_failed": [],
+ "wide_failed": [],
+ "touched": [
+  "src/click/__init__.py",
+  "src/click/exceptions.py",
+  "src/click/core.py"
+ ],
+ "rollout": 1,
+ "tries": 1
+}

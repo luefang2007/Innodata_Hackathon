@@ -111,6 +111,14 @@ call and every check report.
     reproduces the morning results (3/3, 3/3, 3/3, 3/3, 2/3).
   - Not yet run against a live model, so the current packages predate it. A fresh run needs the API:
     `python -m taskfactory generate --n 5 --seed 2` (budget cap `FACTORY_BUDGET_USD`, default 25).
+- **Run 2 (live, 13:08–13:26 ET, $11.01):** output in `submission_v2/`. It reused run 1's paid
+  design/implement calls, measured every task with Haiku (all 3/3), then deepened once.
+  - 0101 (lifecycle hooks) got harder: Haiku 3/3 -> 1/3. Its deepened spec adds teardown hooks,
+    `SkipSubcommand`, exception ordering, chain mode and re-entrancy.
+  - 0102 was deepened but stayed 3/3, so its original was kept. 0103/0104/0105: the deepen answer was
+    cut off at the output-token limit, so their originals were kept.
+  - `submission_v2/generated_tasks` is a complete valid batch of 5 (variation max 0.11). 0102 and
+    0105 are byte-identical to run 1; 0103 and 0104 are equivalent variants; 0101 is the deepened one.
 - **Measured variation:** `python -m taskfactory diversity <packages>`. Single-feature set: max
   similarity 0.11, no near-duplicates. Composites: max 0.69, two near-duplicate pairs, so the
   single-feature set stays the submitted one.
