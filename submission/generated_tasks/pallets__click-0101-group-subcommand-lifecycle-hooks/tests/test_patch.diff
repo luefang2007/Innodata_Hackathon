@@ -1,0 +1,543 @@
+diff --git a/tests/test_group_subcommand_lifecycle_hooks.py b/tests/test_group_subcommand_lifecycle_hooks.py
+new file mode 100644
+index 0000000..b1739c0
+--- /dev/null
++++ b/tests/test_group_subcommand_lifecycle_hooks.py
+@@ -0,0 +1,537 @@
++import click
++from click.core import ParameterSource
++
++
++def test_chain_mode_runs_hooks_around_each_subcommand(runner):
++    @click.group(chain=True)
++    def cli():
++        click.echo("group")
++
++    @cli.before_subcommand
++    def before(ctx):
++        click.echo(f"before {ctx.info_name}")
++
++    @cli.after_subcommand
++    def after(ctx, result):
++        click.echo(f"after {ctx.info_name} -> {result!r}")
++
++    @cli.result_callback()
++    def done(results):
++        click.echo(f"results {results!r}")
++
++    @cli.command()
++    def a():
++        click.echo("a")
++        return 1
++
++    @cli.command()
++    def b():
++        click.echo("b")
++        return 2
++
++    result = runner.invoke(cli, ["a", "b"])
++    assert result.exit_code == 0, result.output
++    assert result.output == (
++        "group\nbefore a\na\nafter a -> 1\nbefore b\nb\nafter b -> 2\n"
++        "results [1, 2]\n"
++    )
++
++
++def test_hook_ordering_constructor_first_and_after_reversed(runner):
++    def first(ctx):
++        click.echo("first")
++
++    @click.group(before_subcommand=first)
++    def cli():
++        pass
++
++    def second(ctx):
++        click.echo("second")
++
++    assert cli.before_subcommand(second) is second
++
++    def after_a(ctx, result):
++        click.echo("after-a")
++
++    def after_b(ctx, result):
++        click.echo("after-b")
++
++    assert cli.after_subcommand(after_a) is after_a
++    assert cli.after_subcommand(after_b) is after_b
++
++    @cli.command()
++    def run():
++        click.echo("run")
++
++    result = runner.invoke(cli, ["run"])
++    assert result.exit_code == 0, result.output
++    assert result.output == "first\nsecond\nrun\nafter-b\nafter-a\n"
++
++
++def test_before_hook_usage_error_shows_subcommand_usage(runner):
++    @click.group()
++    @click.option("--dry-run", is_flag=True)
++    def cli(dry_run):
++        pass
++
++    @cli.before_subcommand
++    def check(ctx):
++        if ctx.parent.params["dry_run"] and ctx.info_name == "deploy":
++            raise click.UsageError("deploy cannot run with --dry-run")
++
++    @cli.command()
++    def deploy():
++        click.echo("deploying")
++
++    result = runner.invoke(cli, ["--dry-run", "deploy"])
++    assert result.exit_code == 2
++    assert result.output == (
++        "Usage: cli deploy [OPTIONS]\n"
++        "Try 'cli deploy --help' for help.\n"
++        "\n"
++        "Error: deploy cannot run with --dry-run\n"
++    )
++
++    result = runner.invoke(cli, ["deploy"])
++    assert result.exit_code == 0
++    assert result.output == "deploying\n"
++
++
++def test_before_hook_sees_processed_params_sources_and_can_modify_params(runner):
++    seen = {}
++
++    @click.group()
++    @click.option("--verbose", is_flag=True)
++    def cli(verbose):
++        pass
++
++    @cli.before_subcommand
++    def before(ctx):
++        seen["ctx"] = ctx
++        seen["current"] = click.get_current_context() is ctx
++        seen["params"] = dict(ctx.params)
++        seen["sources"] = {
++            n: ctx.get_parameter_source(n) for n in ("name", "count", "level")
++        }
++        seen["parent"] = dict(ctx.parent.params)
++        ctx.params["count"] = ctx.params["count"] * 10
++        ctx.params.pop("level")
++        ctx.params["extra"] = "x"
++
++    @cli.command()
++    @click.option("--name", envvar="HOOK_NAME")
++    @click.option("--count", type=int, default=2)
++    @click.option("--level", default="low")
++    @click.pass_context
++    def run(ctx, name, count, extra):
++        click.echo(f"{name} {count} {extra} {ctx is seen['ctx']}")
++
++    result = runner.invoke(
++        cli,
++        ["--verbose", "run", "--count", "3"],
++        env={"HOOK_NAME": "alice"},
++        default_map={"run": {"level": "high"}},
++    )
++    assert result.exit_code == 0, result.output
++    assert result.output == "alice 30 x True\n"
++    assert seen["current"] is True
++    assert seen["params"] == {"name": "alice", "count": 3, "level": "high"}
++    assert seen["sources"] == {
++        "name": ParameterSource.ENVIRONMENT,
++        "count": ParameterSource.COMMANDLINE,
++        "level": ParameterSource.DEFAULT_MAP,
++    }
++    assert seen["parent"] == {"verbose": True}
++
++
++def test_after_hook_return_value_is_ignored():
++    seen = []
++
++    @click.group()
++    def cli():
++        pass
++
++    @cli.after_subcommand
++    def after(ctx, result):
++        seen.append((click.get_current_context() is ctx, result))
++        return "replaced"
++
++    @cli.result_callback()
++    def done(result):
++        seen.append(("rc", result))
++        return result
++
++    @cli.command()
++    def run():
++        return 42
++
++    assert cli.main(["run"], standalone_mode=False) == 42
++    assert seen == [(True, 42), ("rc", 42)]
++
++    @click.group(chain=True)
++    def chained():
++        pass
++
++    @chained.after_subcommand
++    def chained_after(ctx, result):
++        return "replaced"
++
++    @chained.command()
++    def a():
++        return 1
++
++    @chained.command()
++    def b():
++        return 2
++
++    assert chained.main(["a", "b"], standalone_mode=False) == [1, 2]
++
++
++def test_before_hook_error_stops_subcommand_and_other_hooks(runner):
++    calls = []
++
++    @click.group()
++    def cli():
++        pass
++
++    @cli.before_subcommand
++    def b1(ctx):
++        calls.append("b1")
++        raise click.ClickException("stop")
++
++    @cli.before_subcommand
++    def b2(ctx):
++        calls.append("b2")
++
++    @cli.after_subcommand
++    def a1(ctx, result):
++        calls.append("a1")
++
++    @cli.command()
++    def run():
++        calls.append("run")
++
++    result = runner.invoke(cli, ["run"])
++    assert result.exit_code == 1
++    assert result.output == "Error: stop\n"
++    assert calls == ["b1"]
++
++
++def test_subcommand_exit_and_abort_skip_after_hooks(runner):
++    @click.group()
++    def cli():
++        pass
++
++    @cli.before_subcommand
++    def before(ctx):
++        click.echo(f"before {ctx.info_name}")
++
++    @cli.after_subcommand
++    def after(ctx, result):
++        click.echo(f"after {ctx.info_name}")
++
++    @cli.command()
++    @click.pass_context
++    def quit(ctx):
++        click.echo("quit")
++        ctx.exit(3)
++
++    @cli.command()
++    def stop():
++        click.echo("stop")
++        raise click.Abort()
++
++    result = runner.invoke(cli, ["quit"])
++    assert result.exit_code == 3
++    assert result.output == "before quit\nquit\n"
++
++    result = runner.invoke(cli, ["stop"])
++    assert result.exit_code == 1
++    assert result.output == "before stop\nstop\nAborted!\n"
++
++
++def test_after_hook_error_skips_remaining_hooks_and_result_callback(runner):
++    @click.group()
++    def cli():
++        pass
++
++    @cli.after_subcommand
++    def after_a(ctx, result):
++        click.echo("after-a")
++
++    @cli.after_subcommand
++    def after_b(ctx, result):
++        click.echo("after-b")
++        raise click.ClickException("boom")
++
++    @cli.result_callback()
++    def done(result):
++        click.echo("result-callback")
++
++    @cli.command()
++    def run():
++        click.echo("run")
++
++    result = runner.invoke(cli, ["run"])
++    assert result.exit_code == 1
++    assert result.output == "run\nafter-b\nError: boom\n"
++
++
++def test_hooks_apply_only_to_direct_subcommands(runner):
++    @click.group()
++    def outer():
++        click.echo("outer")
++
++    @outer.before_subcommand
++    def ob(ctx):
++        click.echo(f"outer-before {ctx.info_name}")
++
++    @outer.after_subcommand
++    def oa(ctx, result):
++        click.echo(f"outer-after {ctx.info_name} {result!r}")
++
++    @outer.group()
++    def inner():
++        click.echo("inner")
++
++    @inner.result_callback()
++    def inner_done(result):
++        click.echo(f"inner-result {result!r}")
++        return 2
++
++    @inner.command()
++    def run():
++        click.echo("run")
++        return 1
++
++    result = runner.invoke(outer, ["inner", "run"], standalone_mode=False)
++    assert result.exception is None, result.output
++    assert result.return_value == 2
++    assert result.output == (
++        "outer\nouter-before inner\ninner\nrun\ninner-result 1\n"
++        "outer-after inner 2\n"
++    )
++
++
++def test_hooks_not_run_for_help_or_parse_errors(runner):
++    calls = []
++
++    @click.group()
++    def cli():
++        pass
++
++    @cli.before_subcommand
++    def before(ctx):
++        calls.append(f"before {ctx.info_name}")
++
++    @cli.after_subcommand
++    def after(ctx, result):
++        calls.append(f"after {ctx.info_name}")
++
++    @cli.command()
++    @click.option("--x", required=True)
++    def need(x):
++        calls.append("need")
++
++    result = runner.invoke(cli, ["need", "--help"])
++    assert result.exit_code == 0
++    result = runner.invoke(cli, ["need"])
++    assert result.exit_code == 2
++    assert result.output.splitlines()[-1] == "Error: Missing option '--x'."
++    assert calls == []
++
++    @click.group(chain=True)
++    def chained():
++        pass
++
++    @chained.before_subcommand
++    def cb(ctx):
++        calls.append(f"before {ctx.info_name}")
++
++    @chained.after_subcommand
++    def ca(ctx, result):
++        calls.append(f"after {ctx.info_name}")
++
++    @chained.command()
++    def a():
++        calls.append("a")
++
++    @chained.command()
++    @click.option("--x", required=True)
++    def b(x):
++        calls.append("b")
++
++    result = runner.invoke(chained, ["a", "b"])
++    assert result.exit_code == 2
++    assert result.output.splitlines()[-1] == "Error: Missing option '--x'."
++    assert calls == []
++
++
++def test_hooks_not_run_for_context_invoke_or_without_subcommand(runner):
++    @click.group()
++    def cli():
++        pass
++
++    @cli.before_subcommand
++    def before(ctx):
++        click.echo(f"before {ctx.info_name}")
++
++    @cli.after_subcommand
++    def after(ctx, result):
++        click.echo(f"after {ctx.info_name}")
++
++    @cli.command()
++    def target():
++        click.echo("target")
++
++    @cli.command()
++    @click.pass_context
++    def caller(ctx):
++        ctx.invoke(target)
++        ctx.forward(target)
++
++    result = runner.invoke(cli, ["caller"])
++    assert result.exit_code == 0, result.output
++    assert result.output == "before caller\ntarget\ntarget\nafter caller\n"
++
++    @click.group(invoke_without_command=True)
++    def lone():
++        click.echo("lone")
++
++    @lone.before_subcommand
++    def lb(ctx):
++        click.echo("lone-before")
++
++    @lone.after_subcommand
++    def la(ctx, result):
++        click.echo("lone-after")
++
++    @lone.command()
++    def sub():
++        click.echo("sub")
++
++    result = runner.invoke(lone, [])
++    assert result.exit_code == 0, result.output
++    assert result.output == "lone\n"
++
++
++def test_after_hooks_run_before_context_close_callbacks(runner):
++    events = []
++
++    @click.group()
++    def cli():
++        pass
++
++    @cli.after_subcommand
++    def after(ctx, result):
++        events.append("after")
++
++    @cli.command()
++    @click.pass_context
++    def run(ctx):
++        ctx.call_on_close(lambda: events.append("close"))
++        events.append("callback")
++
++    result = runner.invoke(cli, ["run"])
++    assert result.exit_code == 0, result.output
++    assert events == ["callback", "after", "close"]
++
++
++def test_command_collection_uses_own_hooks_not_source_hooks(runner):
++    src = click.Group("src")
++
++    @src.before_subcommand
++    def src_before(ctx):
++        click.echo("src-before")
++
++    @src.after_subcommand
++    def src_after(ctx, result):
++        click.echo("src-after")
++
++    @src.command()
++    def hello():
++        click.echo("hello")
++
++    def coll_before(ctx):
++        click.echo(f"coll-before {ctx.info_name}")
++
++    def coll_after(ctx, result):
++        click.echo(f"coll-after {ctx.info_name} {result!r}")
++
++    coll = click.CommandCollection(
++        "coll",
++        sources=[src],
++        before_subcommand=coll_before,
++        after_subcommand=coll_after,
++    )
++
++    @coll.command()
++    def own():
++        click.echo("own")
++        return 5
++
++    result = runner.invoke(coll, ["hello"])
++    assert result.exit_code == 0, result.output
++    assert result.output == "coll-before hello\nhello\ncoll-after hello None\n"
++
++    result = runner.invoke(coll, ["own"])
++    assert result.exit_code == 0, result.output
++    assert result.output == "coll-before own\nown\ncoll-after own 5\n"
++
++
++def test_shell_completion_does_not_call_hooks():
++    from click.shell_completion import ShellComplete
++
++    calls = []
++
++    @click.group()
++    def cli():
++        pass
++
++    @cli.before_subcommand
++    def before(ctx):
++        calls.append("before")
++
++    @cli.after_subcommand
++    def after(ctx, result):
++        calls.append("after")
++
++    @cli.command()
++    @click.option("--name")
++    def run(name):
++        calls.append("run")
++
++    comp = ShellComplete(cli, {}, "cli", "_CLI_COMPLETE")
++    assert [c.value for c in comp.get_completions(["run"], "--")] == [
++        "--name",
++        "--help",
++    ]
++    comp = ShellComplete(cli, {}, "cli", "_CLI_COMPLETE")
++    assert [c.value for c in comp.get_completions([], "r")] == ["run"]
++    assert calls == []
++
++
++def test_to_info_dict_unchanged_by_hooks():
++    def build(with_hooks):
++        kwargs = {}
++        if with_hooks:
++            kwargs = {
++                "before_subcommand": lambda ctx: None,
++                "after_subcommand": lambda ctx, result: None,
++            }
++        group = click.Group("cli", **kwargs)
++        group.add_command(
++            click.Command("run", params=[click.Option(["--n"], type=int)])
++        )
++        if with_hooks:
++            group.before_subcommand(lambda ctx: None)
++            group.after_subcommand(lambda ctx, result: None)
++        return group
++
++    with click.Context(build(True)) as ctx:
++        with_hooks = ctx.to_info_dict()
++
++    with click.Context(build(False)) as ctx:
++        without_hooks = ctx.to_info_dict()
++
++    assert with_hooks == without_hooks

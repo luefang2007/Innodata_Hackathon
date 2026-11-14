@@ -1,0 +1,17 @@
+[
+ "tests/test_group_subcommand_lifecycle_hooks.py::test_after_hook_error_skips_remaining_hooks_and_result_callback",
+ "tests/test_group_subcommand_lifecycle_hooks.py::test_after_hook_return_value_is_ignored",
+ "tests/test_group_subcommand_lifecycle_hooks.py::test_after_hooks_run_before_context_close_callbacks",
+ "tests/test_group_subcommand_lifecycle_hooks.py::test_before_hook_error_stops_subcommand_and_other_hooks",
+ "tests/test_group_subcommand_lifecycle_hooks.py::test_before_hook_sees_processed_params_sources_and_can_modify_params",
+ "tests/test_group_subcommand_lifecycle_hooks.py::test_before_hook_usage_error_shows_subcommand_usage",
+ "tests/test_group_subcommand_lifecycle_hooks.py::test_chain_mode_runs_hooks_around_each_subcommand",
+ "tests/test_group_subcommand_lifecycle_hooks.py::test_command_collection_uses_own_hooks_not_source_hooks",
+ "tests/test_group_subcommand_lifecycle_hooks.py::test_hook_ordering_constructor_first_and_after_reversed",
+ "tests/test_group_subcommand_lifecycle_hooks.py::test_hooks_apply_only_to_direct_subcommands",
+ "tests/test_group_subcommand_lifecycle_hooks.py::test_hooks_not_run_for_context_invoke_or_without_subcommand",
+ "tests/test_group_subcommand_lifecycle_hooks.py::test_hooks_not_run_for_help_or_parse_errors",
+ "tests/test_group_subcommand_lifecycle_hooks.py::test_shell_completion_does_not_call_hooks",
+ "tests/test_group_subcommand_lifecycle_hooks.py::test_subcommand_exit_and_abort_skip_after_hooks",
+ "tests/test_group_subcommand_lifecycle_hooks.py::test_to_info_dict_unchanged_by_hooks"
+]

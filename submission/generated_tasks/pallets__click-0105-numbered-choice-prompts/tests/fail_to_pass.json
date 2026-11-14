@@ -1,0 +1,18 @@
+[
+ "tests/test_numbered_choice_prompts.py::test_command_line_and_envvar_values_are_not_numbered",
+ "tests/test_numbered_choice_prompts.py::test_confirmation_compares_raw_text",
+ "tests/test_numbered_choice_prompts.py::test_default_map_default_previewed_as_number",
+ "tests/test_numbered_choice_prompts.py::test_empty_input_uses_default_never_read_as_number",
+ "tests/test_numbered_choice_prompts.py::test_enum_choices_use_names_and_return_members",
+ "tests/test_numbered_choice_prompts.py::test_help_completion_and_info_dict_unchanged",
+ "tests/test_numbered_choice_prompts.py::test_hide_input_masks_error_and_err_stream",
+ "tests/test_numbered_choice_prompts.py::test_leading_zeros_and_names_and_invalid_names",
+ "tests/test_numbered_choice_prompts.py::test_menu_and_selection_by_number",
+ "tests/test_numbered_choice_prompts.py::test_option_prompt_numbered_validation_at_construction",
+ "tests/test_numbered_choice_prompts.py::test_out_of_range_number_reprompts_without_menu",
+ "tests/test_numbered_choice_prompts.py::test_prompt_numbered_requires_at_least_one_choice",
+ "tests/test_numbered_choice_prompts.py::test_prompt_numbered_requires_choice_type",
+ "tests/test_numbered_choice_prompts.py::test_prompt_required_false_flag_prompts_with_menu",
+ "tests/test_numbered_choice_prompts.py::test_show_default_false_and_string",
+ "tests/test_numbered_choice_prompts.py::test_ten_choices_menu_alignment"
+]

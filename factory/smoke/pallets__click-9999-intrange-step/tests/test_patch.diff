@@ -1,0 +1,55 @@
+diff --git a/tests/test_intrange_step.py b/tests/test_intrange_step.py
+new file mode 100644
+index 0000000..fb49cbc
+--- /dev/null
++++ b/tests/test_intrange_step.py
+@@ -0,0 +1,49 @@
++import click
++
++
++def _cli():
++    @click.command()
++    @click.option("--n", type=click.IntRange(10, 50, step=5))
++    def cli(n):
++        click.echo(f"n={n}")
++    return cli
++
++
++def test_multiple_accepted(runner):
++    r = runner.invoke(_cli(), ["--n", "25"])
++    assert r.output == "n=25\n"
++
++
++def test_not_multiple_rejected(runner):
++    r = runner.invoke(_cli(), ["--n", "27"])
++    assert r.exit_code == 2
++    assert "27 is not a multiple of 5 counting from 10." in r.output
++
++
++def test_lower_bound_is_origin(runner):
++    r = runner.invoke(_cli(), ["--n", "10"])
++    assert r.output == "n=10\n"
++
++
++def test_origin_zero_without_min():
++    t = click.IntRange(max=100, step=3)
++    assert t.convert("9", None, None) == 9
++
++
++def test_origin_zero_rejects():
++    t = click.IntRange(max=100, step=3)
++    try:
++        t.convert("10", None, None)
++    except click.BadParameter as e:
++        assert e.message == "10 is not a multiple of 3 counting from 0."
++    else:
++        raise AssertionError("expected BadParameter")
++
++
++def test_step_attribute():
++    assert click.IntRange(0, 9, step=4).step == 4
++
++
++def test_range_still_checked(runner):
++    r = runner.invoke(_cli(), ["--n", "55"])
++    assert r.exit_code == 2

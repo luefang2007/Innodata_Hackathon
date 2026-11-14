@@ -1,0 +1,18 @@
+[
+ "tests/test_types/test_Choice.py::test_choice_get_invalid_choice_message",
+ "tests/test_types/test_File.py::test_file_surrogates[type0]",
+ "tests/test_types/test_File.py::test_file_surrogates[type1]",
+ "tests/test_types/test_FloatRange.py::test_float_range_no_clamp_open",
+ "tests/test_types/test_FloatRange.py::test_range[type0-1.2-1.2]",
+ "tests/test_types/test_FloatRange.py::test_range[type1-0.51-0.51]",
+ "tests/test_types/test_FloatRange.py::test_range[type2-1.49-1.49]",
+ "tests/test_types/test_FloatRange.py::test_range[type3--0.0-0.5]",
+ "tests/test_types/test_FloatRange.py::test_range[type4-inf-1.5]",
+ "tests/test_types/test_FloatRange.py::test_range_fail[type0-0.5-x>0.5]",
+ "tests/test_types/test_FloatRange.py::test_range_fail[type1-1.5-x<1.5]",
+ "tests/test_types/test_FuncParamType.py::test_func_param_type_uses_value_error_message[-nope]",
+ "tests/test_types/test_IntRange.py::test_range[type5--1-0]",
+ "tests/test_types/test_IntRange.py::test_range[type6-6-5]",
+ "tests/test_types/test_IntRange.py::test_range[type7-0-1]",
+ "tests/test_types/test_IntRange.py::test_range[type8-5-4]"
+]

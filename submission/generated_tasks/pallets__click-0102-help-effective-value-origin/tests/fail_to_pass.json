@@ -1,0 +1,16 @@
+[
+ "tests/test_help_effective_value_origin.py::test_auto_envvar_respects_allow_from_autoenv_and_is_raw",
+ "tests/test_help_effective_value_origin.py::test_current_item_replaces_default_item_for_default_origins",
+ "tests/test_help_effective_value_origin.py::test_default_map_prompt_and_hidden_input_in_help",
+ "tests/test_help_effective_value_origin.py::test_disabled_feature_keeps_existing_help",
+ "tests/test_help_effective_value_origin.py::test_effective_value_defaults_and_unset",
+ "tests/test_help_effective_value_origin.py::test_env_var_outranks_prompt_default_map_and_default",
+ "tests/test_help_effective_value_origin.py::test_group_default_map_entry_applies_and_callables_not_called",
+ "tests/test_help_effective_value_origin.py::test_help_shows_effective_value_from_default_and_env",
+ "tests/test_help_effective_value_origin.py::test_item_order_with_env_range_and_required",
+ "tests/test_help_effective_value_origin.py::test_omitted_when_no_value_or_false_flag",
+ "tests/test_help_effective_value_origin.py::test_option_setting_overrides_context_and_inheritance",
+ "tests/test_help_effective_value_origin.py::test_prompt_required_false_skips_prompt_step",
+ "tests/test_help_effective_value_origin.py::test_subcommand_inherits_setting_and_uses_auto_envvar",
+ "tests/test_help_effective_value_origin.py::test_value_rendering_rules"
+]

@@ -1,0 +1,2 @@
+[fairness] FAILED
+asserted text "outer\nouter-before inner\ninner\nleaf\ninner-result 'leaf-rv'\nouter-after inner 'inner-rv'\n" uses words not found in instruction.md: ["rv'"]

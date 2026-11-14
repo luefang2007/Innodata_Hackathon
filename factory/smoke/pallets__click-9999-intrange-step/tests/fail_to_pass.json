@@ -1,0 +1,9 @@
+[
+ "tests/test_intrange_step.py::test_lower_bound_is_origin",
+ "tests/test_intrange_step.py::test_multiple_accepted",
+ "tests/test_intrange_step.py::test_not_multiple_rejected",
+ "tests/test_intrange_step.py::test_origin_zero_rejects",
+ "tests/test_intrange_step.py::test_origin_zero_without_min",
+ "tests/test_intrange_step.py::test_range_still_checked",
+ "tests/test_intrange_step.py::test_step_attribute"
+]

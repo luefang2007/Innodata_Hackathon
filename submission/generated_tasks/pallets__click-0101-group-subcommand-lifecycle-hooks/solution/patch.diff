@@ -1,0 +1,120 @@
+diff --git a/src/click/core.py b/src/click/core.py
+index e4b6b57..05f4ed2 100644
+--- a/src/click/core.py
++++ b/src/click/core.py
+@@ -1689,8 +1689,17 @@ class Group(Command):
+         all the commands. If ``invoke_without_command`` is enabled, the value
+         will be the value returned by the group's callback, or an empty list if
+         ``chain`` is enabled.
++    :param before_subcommand: A hook called as ``hook(sub_ctx)`` right before
++        each direct subcommand is invoked. Registered before any hook added
++        with :meth:`before_subcommand`.
++    :param after_subcommand: A hook called as ``hook(sub_ctx, result)`` right
++        after each direct subcommand returns normally. Registered before any
++        hook added with :meth:`after_subcommand`.
+     :param kwargs: Other arguments passed to :class:`Command`.
+ 
++    .. versionchanged:: 8.6.0
++        Added the ``before_subcommand`` and ``after_subcommand`` parameters.
++
+     .. versionchanged:: 8.0
+         The ``commands`` argument can be a list of command objects.
+ 
+@@ -1726,6 +1735,8 @@ class Group(Command):
+     subcommand_metavar: str
+     chain: bool
+     _result_callback: t.Callable[..., t.Any] | None
++    _before_subcommand_hooks: list[t.Callable[[Context], t.Any]]
++    _after_subcommand_hooks: list[t.Callable[[Context, t.Any], t.Any]]
+ 
+     def __init__(
+         self,
+@@ -1738,6 +1749,8 @@ class Group(Command):
+         subcommand_metavar: str | None = None,
+         chain: bool = False,
+         result_callback: t.Callable[..., t.Any] | None = None,
++        before_subcommand: t.Callable[[Context], t.Any] | None = None,
++        after_subcommand: t.Callable[[Context, t.Any], t.Any] | None = None,
+         **kwargs: t.Any,
+     ) -> None:
+         super().__init__(name, **kwargs)
+@@ -1774,6 +1787,15 @@ class Group(Command):
+         # The result callback that is stored. This can be set or
+         # overridden with the :func:`result_callback` decorator.
+         self._result_callback = result_callback
++        # Hooks run around each direct subcommand invocation.
++        self._before_subcommand_hooks = []
++        self._after_subcommand_hooks = []
++
++        if before_subcommand is not None:
++            self._before_subcommand_hooks.append(before_subcommand)
++
++        if after_subcommand is not None:
++            self._after_subcommand_hooks.append(after_subcommand)
+ 
+         if self.chain:
+             for param in self.params:
+@@ -1956,6 +1978,45 @@ class Group(Command):
+ 
+         return decorator
+ 
++    def before_subcommand(self, f: F) -> F:
++        """Register a hook called as ``f(sub_ctx)`` immediately before each
++        direct subcommand of this group is invoked. Hooks run in registration
++        order. Returns ``f`` unchanged so it can be used as a decorator.
++
++        .. versionadded:: 8.6.0
++        """
++        self._before_subcommand_hooks.append(f)
++        return f
++
++    def after_subcommand(self, f: F) -> F:
++        """Register a hook called as ``f(sub_ctx, result)`` after each direct
++        subcommand of this group returns normally. Hooks run in reverse
++        registration order. Returns ``f`` unchanged so it can be used as a
++        decorator.
++
++        .. versionadded:: 8.6.0
++        """
++        self._after_subcommand_hooks.append(f)
++        return f
++
++    def _invoke_subcommand(self, sub_ctx: Context) -> t.Any:
++        """Invoke a direct subcommand, running the registered lifecycle hooks
++        around it. Must be called while ``sub_ctx`` is entered.
++
++        :meta private:
++        """
++        with augment_usage_errors(sub_ctx):
++            for hook in self._before_subcommand_hooks:
++                hook(sub_ctx)
++
++        rv = sub_ctx.command.invoke(sub_ctx)
++
++        with augment_usage_errors(sub_ctx):
++            for hook in reversed(self._after_subcommand_hooks):
++                hook(sub_ctx, rv)
++
++        return rv
++
+     def get_command(self, ctx: Context, cmd_name: str) -> Command | None:
+         """Given a context and a command name, this returns a :class:`Command`
+         object if it exists or returns ``None``.
+@@ -2051,7 +2112,7 @@ class Group(Command):
+                 super().invoke(ctx)
+                 sub_ctx = cmd.make_context(cmd_name, args, parent=ctx)
+                 with sub_ctx:
+-                    return _process_result(sub_ctx.command.invoke(sub_ctx))
++                    return _process_result(self._invoke_subcommand(sub_ctx))
+ 
+         # In chain mode we create the contexts step by step, but after the
+         # base command has been invoked.  Because at that point we do not
+@@ -2082,7 +2143,7 @@ class Group(Command):
+             rv = []
+             for sub_ctx in contexts:
+                 with sub_ctx:
+-                    rv.append(sub_ctx.command.invoke(sub_ctx))
++                    rv.append(self._invoke_subcommand(sub_ctx))
+             return _process_result(rv)
+ 
+     def resolve_command(

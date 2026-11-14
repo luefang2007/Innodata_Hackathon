@@ -1,0 +1,19 @@
+# secrets: API keys live only in factory/.env
+.env
+**/.env
+
+# local caches (click clone, snapshots, venv, coverage map, response cache)
+factory/.cache/
+__pycache__/
+*.pyc
+
+# organizer kit and event materials: not ours to redistribute
+Track 1 - Coding/
+Track 2 - Visual/
+Innodata Hackathon.pdf
+Presentation Template.pptx
+
+# junk
+~$*
+.DS_Store
+sc/
