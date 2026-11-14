@@ -1,0 +1,211 @@
+diff --git a/src/click/core.py b/src/click/core.py
+index e4b6b57..b57436a 100644
+--- a/src/click/core.py
++++ b/src/click/core.py
+@@ -336,6 +336,7 @@ class Context:
+     auto_envvar_prefix: str | None
+     color: bool | None
+     show_default: bool | None
++    show_effective: bool | None
+     _close_callbacks: list[t.Callable[[], t.Any]]
+     _depth: int
+     _parameter_source: dict[str, ParameterSource]
+@@ -360,6 +361,7 @@ class Context:
+         token_normalize_func: t.Callable[[str], str] | None = None,
+         color: bool | None = None,
+         show_default: bool | None = None,
++        show_effective: bool | None = None,
+     ) -> None:
+         #: the parent context or `None` if none exists.
+         self.parent = parent
+@@ -507,6 +509,12 @@ class Context:
+         #: Show option default values when formatting help text.
+         self.show_default = show_default
+ 
++        if show_effective is None and parent is not None:
++            show_effective = parent.show_effective
++
++        #: Whether options show their effective value in help pages.
++        self.show_effective = show_effective
++
+         self._close_callbacks = []
+         self._depth = 0
+         self._parameter_source = {}
+@@ -2979,6 +2987,7 @@ class Option(Parameter):
+     show_default: bool | str | None
+     show_choices: bool
+     show_envvar: bool
++    show_effective: bool | None
+ 
+     def __init__(
+         self,
+@@ -2998,6 +3007,7 @@ class Option(Parameter):
+         hidden: bool = False,
+         show_choices: bool = True,
+         show_envvar: bool = False,
++        show_effective: bool | None = None,
+         deprecated: bool | str = False,
+         **attrs: t.Any,
+     ) -> None:
+@@ -3053,6 +3063,7 @@ class Option(Parameter):
+         self.show_default = show_default
+         self.show_choices = show_choices
+         self.show_envvar = show_envvar
++        self.show_effective = show_effective
+ 
+         # Phase 5: validate. Raises on illegal kwarg combinations.
+         self._validate(prompt, deprecated)
+@@ -3251,6 +3262,101 @@ class Option(Parameter):
+             value = value()
+         return value
+ 
++    def _effective_enabled(self, ctx: Context) -> bool:
++        if self.show_effective is not None:
++            return self.show_effective
++        return bool(ctx.show_effective)
++
++    def _effective_envvar(self, ctx: Context) -> tuple[str, str] | None:
++        if self.envvar:
++            names = [self.envvar] if isinstance(self.envvar, str) else self.envvar
++            for name in names:
++                rv = os.environ.get(name)
++
++                if rv:
++                    return name, rv
++
++        if self.allow_from_autoenv and ctx.auto_envvar_prefix is not None and self.name:
++            name = f"{ctx.auto_envvar_prefix}_{self.name.upper()}"
++            rv = os.environ.get(name)
++
++            if rv:
++                return name, rv
++
++        return None
++
++    def get_effective_value(
++        self, ctx: Context
++    ) -> tuple[t.Any, ParameterSource] | None:
++        """Return the value this option would receive if it were not given on the
++        command line, together with its source. Checks the environment, the prompt,
++        the ``default_map`` and the default, in that order. Callables are not called,
++        no type conversion is done and no prompt is shown. Returns ``None`` if the
++        option has no value at all.
++        """
++        found = self._effective_envvar(ctx)
++
++        if found is not None:
++            return found[1], ParameterSource.ENVIRONMENT
++
++        if self.prompt is not None and (self.required or self.prompt_required):
++            return None, ParameterSource.PROMPT
++
++        if ctx._default_map_has(self.name):
++            assert ctx.default_map is not None
++            return ctx.default_map[self.name], ParameterSource.DEFAULT_MAP
++
++        value = self.get_default(ctx, call=False)
++
++        if value is UNSET:
++            return None
++
++        return value, ParameterSource.DEFAULT
++
++    def _is_effective_omitted(self, value: t.Any, source: ParameterSource) -> bool:
++        if value is None:
++            return True
++
++        if isinstance(value, (list, tuple)) and not value:
++            return True
++
++        return (
++            self.is_bool_flag
++            and not self.secondary_opts
++            and source is ParameterSource.DEFAULT
++            and value is False
++        )
++
++    def _render_effective_value(self, value: t.Any, source: ParameterSource) -> str:
++        if inspect.isfunction(value):
++            rendered = _("(dynamic)")
++        elif isinstance(value, enum.Enum):
++            rendered = value.name
++        elif (
++            isinstance(value, bool)
++            and self.is_bool_flag
++            and self.secondary_opts
++            and source in (ParameterSource.DEFAULT, ParameterSource.DEFAULT_MAP)
++        ):
++            opts = self.opts if value else self.secondary_opts
++            rendered = _split_opt(opts[0])[1]
++        elif isinstance(value, (list, tuple)):
++            rendered = ", ".join(
++                " ".join(str(item) for item in v)
++                if isinstance(v, (list, tuple))
++                else str(v)
++                for v in value
++            )
++        elif isinstance(value, str) and value == "":
++            rendered = '""'
++        else:
++            rendered = str(value)
++
++        if self.hide_input:
++            return "***"
++
++        return rendered
++
+     def get_error_hint(self, ctx: Context | None) -> str:
+         result = super().get_error_hint(ctx)
+         if self.show_envvar and self.envvar:
+@@ -3409,6 +3515,8 @@ class Option(Parameter):
+             )
+         if "default" in extra:
+             extra_items.append(_("default: {default}").format(default=extra["default"]))
++        if "current" in extra:
++            extra_items.append(_("current: {current}").format(current=extra["current"]))
+         if "range" in extra:
+             extra_items.append(extra["range"])
+         if "required" in extra:
+@@ -3498,6 +3606,31 @@ class Option(Parameter):
+             if range_str:
+                 extra["range"] = range_str
+ 
++        if self._effective_enabled(ctx):
++            effective = self.get_effective_value(ctx)
++
++            if effective is not None:
++                value, source = effective
++
++                if source is ParameterSource.PROMPT:
++                    extra["current"] = "(prompt)"
++                elif not self._is_effective_omitted(value, source):
++                    if source is ParameterSource.ENVIRONMENT:
++                        found = self._effective_envvar(ctx)
++                        origin = _("env var {name}").format(
++                            name=found[0] if found else ""
++                        )
++                    elif source is ParameterSource.DEFAULT_MAP:
++                        origin = _("default map")
++                    else:
++                        origin = _("default")
++
++                    rendered = self._render_effective_value(value, source)
++                    extra["current"] = f"{rendered} ({origin})"
++
++                    if source in (ParameterSource.DEFAULT, ParameterSource.DEFAULT_MAP):
++                        extra.pop("default", None)
++
+         if self.required:
+             extra["required"] = "required"
+ 
+diff --git a/src/click/types.py b/src/click/types.py
+index b6e98a9..fe52a80 100644
+--- a/src/click/types.py
++++ b/src/click/types.py
+@@ -1433,5 +1433,6 @@ UUID: t.Final[UUIDParameterType] = UUIDParameterType()
+ class OptionHelpExtra(t.TypedDict, total=False):
+     envvars: tuple[str, ...]
+     default: str
++    current: str
+     range: str
+     required: str

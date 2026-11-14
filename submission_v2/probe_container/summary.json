@@ -1,0 +1,186 @@
+{
+ "run": "20261114T180829Z-s1",
+ "what": "logged one-shot Haiku attempts on the shipped tasks, re-graded with each package's tests/test.sh inside the task image built by Harbor; no model calls",
+ "tasks": {
+  "pallets__click-0101-group-subcommand-lifecycle-hooks": {
+   "round": 1,
+   "attempts": [
+    {
+     "rollout": "rollout_1",
+     "host_reward": 1.0,
+     "container_reward": 1.0,
+     "container_resolved": true,
+     "f2p": "22/22",
+     "p2p": "80/80",
+     "problem": ""
+    },
+    {
+     "rollout": "rollout_2",
+     "host_reward": 0.9545,
+     "container_reward": 0.9545,
+     "container_resolved": false,
+     "f2p": "21/22",
+     "p2p": "80/80",
+     "problem": ""
+    },
+    {
+     "rollout": "rollout_3",
+     "host_reward": 0.9545,
+     "container_reward": 0.9545,
+     "container_resolved": false,
+     "f2p": "21/22",
+     "p2p": "80/80",
+     "problem": ""
+    }
+   ],
+   "container_resolved": 1,
+   "host_resolved": 1,
+   "graded": 3,
+   "agree": true
+  },
+  "pallets__click-0102-help-effective-value-origin": {
+   "round": 0,
+   "attempts": [
+    {
+     "rollout": "rollout_1",
+     "host_reward": 1.0,
+     "container_reward": 1.0,
+     "container_resolved": true,
+     "f2p": "14/14",
+     "p2p": "80/80",
+     "problem": ""
+    },
+    {
+     "rollout": "rollout_2",
+     "host_reward": 1.0,
+     "container_reward": 1.0,
+     "container_resolved": true,
+     "f2p": "14/14",
+     "p2p": "80/80",
+     "problem": ""
+    },
+    {
+     "rollout": "rollout_3",
+     "host_reward": 1.0,
+     "container_reward": 1.0,
+     "container_resolved": true,
+     "f2p": "14/14",
+     "p2p": "80/80",
+     "problem": ""
+    }
+   ],
+   "container_resolved": 3,
+   "host_resolved": 3,
+   "graded": 3,
+   "agree": true
+  },
+  "pallets__click-0103-line-completion-protocol": {
+   "round": 0,
+   "attempts": [
+    {
+     "rollout": "rollout_1",
+     "host_reward": 1.0,
+     "container_reward": 1.0,
+     "container_resolved": true,
+     "f2p": "38/38",
+     "p2p": "19/19",
+     "problem": ""
+    },
+    {
+     "rollout": "rollout_2",
+     "host_reward": 1.0,
+     "container_reward": 1.0,
+     "container_resolved": true,
+     "f2p": "38/38",
+     "p2p": "19/19",
+     "problem": ""
+    },
+    {
+     "rollout": "rollout_3",
+     "host_reward": 1.0,
+     "container_reward": 1.0,
+     "container_resolved": true,
+     "f2p": "38/38",
+     "p2p": "19/19",
+     "problem": ""
+    }
+   ],
+   "container_resolved": 3,
+   "host_resolved": 3,
+   "graded": 3,
+   "agree": true
+  },
+  "pallets__click-0104-option-shorthand-expansions": {
+   "round": 0,
+   "attempts": [
+    {
+     "rollout": "rollout_1",
+     "host_reward": 1.0,
+     "container_reward": 1.0,
+     "container_resolved": true,
+     "f2p": "27/27",
+     "p2p": "80/80",
+     "problem": ""
+    },
+    {
+     "rollout": "rollout_2",
+     "host_reward": 1.0,
+     "container_reward": 1.0,
+     "container_resolved": true,
+     "f2p": "27/27",
+     "p2p": "80/80",
+     "problem": ""
+    },
+    {
+     "rollout": "rollout_3",
+     "host_reward": 1.0,
+     "container_reward": 1.0,
+     "container_resolved": true,
+     "f2p": "27/27",
+     "p2p": "80/80",
+     "problem": ""
+    }
+   ],
+   "container_resolved": 3,
+   "host_resolved": 3,
+   "graded": 3,
+   "agree": true
+  },
+  "pallets__click-0105-numbered-choice-prompts": {
+   "round": 0,
+   "attempts": [
+    {
+     "rollout": "rollout_1",
+     "host_reward": 1.0,
+     "container_reward": 1.0,
+     "container_resolved": true,
+     "f2p": "16/16",
+     "p2p": "80/80",
+     "problem": ""
+    },
+    {
+     "rollout": "rollout_2",
+     "host_reward": 1.0,
+     "container_reward": 1.0,
+     "container_resolved": true,
+     "f2p": "16/16",
+     "p2p": "80/80",
+     "problem": ""
+    },
+    {
+     "rollout": "rollout_3",
+     "host_reward": 1.0,
+     "container_reward": 1.0,
+     "container_resolved": true,
+     "f2p": "16/16",
+     "p2p": "80/80",
+     "problem": ""
+    }
+   ],
+   "container_resolved": 3,
+   "host_resolved": 3,
+   "graded": 3,
+   "agree": true
+  }
+ }
+}

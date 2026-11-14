@@ -1,0 +1,390 @@
+diff --git a/src/click/__init__.py b/src/click/__init__.py
+index a34ab02..8692b9e 100644
+--- a/src/click/__init__.py
++++ b/src/click/__init__.py
+@@ -15,6 +15,7 @@ from .core import Group as Group
+ from .core import Option as Option
+ from .core import Parameter as Parameter
+ from .core import ParameterSource as ParameterSource
++from .core import Shorthand as Shorthand
+ from .decorators import argument as argument
+ from .decorators import command as command
+ from .decorators import confirmation_option as confirmation_option
+@@ -27,6 +28,7 @@ from .decorators import pass_context as pass_context
+ from .decorators import pass_obj as pass_obj
+ from .decorators import password_option as password_option
+ from .decorators import version_option as version_option
++from .decorators import shorthand as shorthand
+ from .exceptions import Abort as Abort
+ from .exceptions import BadArgumentUsage as BadArgumentUsage
+ from .exceptions import BadOptionUsage as BadOptionUsage
+diff --git a/src/click/core.py b/src/click/core.py
+index e4b6b57..6a672e4 100644
+--- a/src/click/core.py
++++ b/src/click/core.py
+@@ -5,6 +5,7 @@ import enum
+ import errno
+ import inspect
+ import os
++import shlex
+ import sys
+ import typing as t
+ from abc import ABC
+@@ -36,6 +37,7 @@ from .formatting import join_options
+ from .globals import pop_context
+ from .globals import push_context
+ from .parser import _OptionParser
++from .parser import _normalize_opt
+ from .parser import _split_opt
+ from .termui import confirm
+ from .termui import prompt
+@@ -210,6 +212,70 @@ class ParameterSource(enum.IntEnum):
+     """Used the default specified by the parameter."""
+ 
+ 
++class Shorthand:
++    """A declarative token expansion. Where the option parser would process an
++    option token equal to :attr:`name`, it replaces that token by the tokens of
++    :attr:`expansion`, as if the user had typed them there.
++
++    :param name: the token to match, including its prefix, such as ``-q``.
++    :param expansion: the tokens that replace ``name``. They may be options,
++        option values, positional tokens, or ``--``.
++    :param help: the help text shown in the ``Shorthands`` section.
++    :param hidden: hide this shorthand from help outputs.
++
++    .. seealso:: :func:`click.shorthand`
++    """
++
++    name: str
++    expansion: tuple[str, ...]
++    help: str | None
++    hidden: bool
++
++    def __init__(
++        self,
++        name: str,
++        expansion: cabc.Sequence[str],
++        help: str | None = None,
++        hidden: bool = False,
++    ) -> None:
++        if not isinstance(name, str):
++            raise ValueError(f"Invalid shorthand name {name!r}.")
++
++        prefix, rest = _split_opt(name)
++
++        if not prefix or not rest or "=" in name or any(c.isspace() for c in name):
++            raise ValueError(f"Invalid shorthand name {name!r}.")
++
++        if isinstance(expansion, str):
++            raise TypeError(
++                "Shorthand expansion must be a sequence of strings, not a single string."
++            )
++
++        tokens = tuple(expansion)
++
++        if not all(isinstance(token, str) for token in tokens):
++            raise TypeError("Shorthand expansion tokens must be strings.")
++
++        if not tokens:
++            raise ValueError(f"Shorthand {name!r} must expand to at least one token.")
++
++        self.name = name
++        self.expansion = tokens
++        self.help = help
++        self.hidden = hidden
++
++    def to_info_dict(self) -> dict[str, t.Any]:
++        return {
++            "name": self.name,
++            "expansion": list(self.expansion),
++            "help": self.help,
++            "hidden": self.hidden,
++        }
++
++    def __repr__(self) -> str:
++        return f"<{self.__class__.__name__} {self.name}>"
++
++
+ class Context:
+     """The context is a special internal object that holds state relevant
+     for the script execution at every single level.  It's normally invisible
+@@ -1032,6 +1098,7 @@ class Command:
+     no_args_is_help: bool
+     hidden: bool
+     deprecated: bool | str
++    shorthands: list[Shorthand]
+ 
+     def __init__(
+         self,
+@@ -1047,6 +1114,7 @@ class Command:
+         no_args_is_help: bool = False,
+         hidden: bool = False,
+         deprecated: bool | str = False,
++        shorthands: cabc.Sequence[Shorthand] | None = None,
+     ) -> None:
+         #: the name the command thinks it has.  Upon registering a command
+         #: on a :class:`Group` the group will default the command name
+@@ -1077,8 +1145,16 @@ class Command:
+         self.hidden = hidden
+         self.deprecated = deprecated
+ 
++        shorthands = list(shorthands) if shorthands is not None else []
++
++        if not all(isinstance(sh, Shorthand) for sh in shorthands):
++            raise TypeError("'shorthands' must contain only Shorthand instances.")
++
++        #: The shorthands that expand into other tokens when the parser meets them.
++        self.shorthands = shorthands
++
+     def to_info_dict(self, ctx: Context) -> dict[str, t.Any]:
+-        return {
++        info_dict: dict[str, t.Any] = {
+             "name": self.name,
+             "params": [param.to_info_dict() for param in self.get_params(ctx)],
+             "help": self.help,
+@@ -1088,6 +1164,11 @@ class Command:
+             "deprecated": self.deprecated,
+         }
+ 
++        if self.shorthands:
++            info_dict["shorthands"] = [sh.to_info_dict() for sh in self.shorthands]
++
++        return info_dict
++
+     def __repr__(self) -> str:
+         return f"<{self.__class__.__name__} {self.name}>"
+ 
+@@ -1188,6 +1269,8 @@ class Command:
+         for param in self.params:
+             for name in (*param.opts, *param.secondary_opts):
+                 all_names.pop(name, None)
++        for shorthand in self.shorthands:
++            all_names.pop(shorthand.name, None)
+         return list(all_names)
+ 
+     def get_help_option(self, ctx: Context) -> Option | None:
+@@ -1227,8 +1310,36 @@ class Command:
+     def make_parser(self, ctx: Context) -> _OptionParser:
+         """Creates the underlying option parser for this command."""
+         parser = _OptionParser(ctx)
+-        for param in self.get_params(ctx):
++        params = self.get_params(ctx)
++
++        for param in params:
+             param.add_to_parser(parser, ctx)
++
++        if self.shorthands:
++            option_names = {
++                _normalize_opt(name, ctx)
++                for param in params
++                for name in (*param.opts, *param.secondary_opts)
++            }
++            seen: set[str] = set()
++
++            for shorthand in self.shorthands:
++                key = _normalize_opt(shorthand.name, ctx)
++
++                if key in option_names:
++                    raise ValueError(
++                        f"Shorthand {shorthand.name!r} conflicts with an option"
++                        " of the same name."
++                    )
++
++                if key in seen:
++                    raise ValueError(
++                        f"Shorthand {shorthand.name!r} is defined more than once."
++                    )
++
++                seen.add(key)
++                parser.add_shorthand(shorthand.name, shorthand.expansion)
++
+         return parser
+ 
+     def get_help(self, ctx: Context) -> str:
+@@ -1305,6 +1416,26 @@ class Command:
+             with formatter.section(_("Options")):
+                 formatter.write_dl(opts)
+ 
++        self.format_shorthands(ctx, formatter)
++
++    def format_shorthands(self, ctx: Context, formatter: HelpFormatter) -> None:
++        """Writes the visible shorthands into the formatter, if there are any."""
++        rows: list[tuple[str, str]] = []
++
++        for shorthand in self.shorthands:
++            if shorthand.hidden:
++                continue
++
++            expands = _("[expands to: {tokens}]").format(
++                tokens=shlex.join(shorthand.expansion)
++            )
++            text = f"{shorthand.help}  {expands}" if shorthand.help else expands
++            rows.append((shorthand.name, text))
++
++        if rows:
++            with formatter.section(_("Shorthands")):
++                formatter.write_dl(rows)
++
+     def format_arguments(self, ctx: Context, formatter: HelpFormatter) -> None:
+         """Writes all arguments into the formatter, if at least one is documented.
+ 
+diff --git a/src/click/decorators.py b/src/click/decorators.py
+index 0c7b6c4..a2cdd33 100644
+--- a/src/click/decorators.py
++++ b/src/click/decorators.py
+@@ -11,6 +11,7 @@ from .core import Context
+ from .core import Group
+ from .core import Option
+ from .core import Parameter
++from .core import Shorthand
+ from .globals import get_current_context
+ from .utils import echo
+ 
+@@ -245,7 +246,20 @@ def command(
+             if sep and suffix in {"command", "cmd", "group", "grp"}:
+                 cmd_name = cmd_left
+ 
+-        cmd = cls(name=cmd_name, callback=f, params=params, **attrs)
++        explicit_shorthands = attrs.pop("shorthands", None)
++        shorthands = list(explicit_shorthands) if explicit_shorthands is not None else []
++
++        try:
++            decorator_shorthands = f.__click_shorthands__  # type: ignore
++        except AttributeError:
++            pass
++        else:
++            del f.__click_shorthands__  # type: ignore
++            shorthands.extend(reversed(decorator_shorthands))
++
++        cmd = cls(
++            name=cmd_name, callback=f, params=params, shorthands=shorthands, **attrs
++        )
+         cmd.__doc__ = f.__doc__
+         return cmd
+ 
+@@ -321,6 +335,37 @@ def _param_memo(f: t.Callable[..., t.Any], param: Parameter) -> None:
+         f.__click_params__.append(param)  # type: ignore
+ 
+ 
++def _shorthand_memo(f: t.Callable[..., t.Any], sh: Shorthand) -> None:
++    if isinstance(f, Command):
++        f.shorthands.append(sh)
++    else:
++        if not hasattr(f, "__click_shorthands__"):
++            f.__click_shorthands__ = []  # type: ignore
++
++        f.__click_shorthands__.append(sh)  # type: ignore
++
++
++def shorthand(
++    name: str, *expansion: str, help: str | None = None, hidden: bool = False
++) -> t.Callable[[FC], FC]:
++    """Attaches a shorthand to the command. A shorthand is a token, such as
++    ``-q``, that the parser replaces by the tokens of ``expansion`` wherever it
++    would otherwise process an option. The shorthand is validated immediately.
++
++    :param name: the token to match, including its prefix.
++    :param expansion: the tokens that replace ``name``.
++    :param help: the help text shown in the ``Shorthands`` section.
++    :param hidden: hide this shorthand from help outputs.
++    """
++    sh = Shorthand(name, expansion, help=help, hidden=hidden)
++
++    def decorator(f: FC) -> FC:
++        _shorthand_memo(f, sh)
++        return f
++
++    return decorator
++
++
+ def argument(
+     *param_decls: str, cls: type[Argument] | None = None, **attrs: t.Any
+ ) -> t.Callable[[FC], FC]:
+diff --git a/src/click/parser.py b/src/click/parser.py
+index 4fcbf7c..35aeb4c 100644
+--- a/src/click/parser.py
++++ b/src/click/parser.py
+@@ -124,6 +124,15 @@ def _normalize_opt(opt: str, ctx: Context | None) -> str:
+     return f"{prefix}{ctx.token_normalize_func(opt)}"
+ 
+ 
++class _ExpandedToken(str):
++    """A token inserted by a shorthand expansion. The parser never expands it again."""
++
++
++def _plain_token(token: t.Any) -> t.Any:
++    """Turns an expanded token back into a plain ``str``."""
++    return str(token) if isinstance(token, _ExpandedToken) else token
++
++
+ class _Option:
+     def __init__(
+         self,
+@@ -261,6 +270,7 @@ class _OptionParser:
+         self._long_opt: dict[str, _Option] = {}
+         self._opt_prefixes = {"-", "--"}
+         self._args: list[_Argument] = []
++        self._shorthands: dict[str, tuple[str, ...]] = {}
+ 
+     def add_option(
+         self,
+@@ -287,6 +297,22 @@ class _OptionParser:
+         for opt in option._long_opts:
+             self._long_opt[opt] = option
+ 
++    def add_shorthand(self, name: str, expansion: cabc.Sequence[str]) -> None:
++        """Adds a shorthand named ``name``. A token equal to it, met where an option
++        would be processed, is replaced by the tokens of ``expansion``.
++        """
++        prefix = _split_opt(name)[0]
++        self._opt_prefixes.add(prefix[:1])
++        self._opt_prefixes.add(prefix)
++        self._shorthands[_normalize_opt(name, self.ctx)] = tuple(expansion)
++
++    def _expand_shorthand(self, arg: str) -> tuple[str, ...] | None:
++        """Returns the expansion of ``arg`` if it is a shorthand, else ``None``."""
++        if not self._shorthands or isinstance(arg, _ExpandedToken):
++            return None
++
++        return self._shorthands.get(_normalize_opt(arg, self.ctx))
++
+     def add_argument(self, obj: CoreArgument, dest: str | None, nargs: int = 1) -> None:
+         """Adds a positional argument named `dest` to the parser.
+ 
+@@ -315,7 +341,8 @@ class _OptionParser:
+ 
+     def _process_args_for_args(self, state: _ParsingState) -> None:
+         pargs, args = _unpack_args(
+-            state.largs + state.rargs, [x.nargs for x in self._args]
++            [_plain_token(arg) for arg in state.largs + state.rargs],
++            [x.nargs for x in self._args],
+         )
+ 
+         for idx, arg in enumerate(self._args):
+@@ -333,7 +360,12 @@ class _OptionParser:
+             if arg == "--":
+                 return
+             elif arg[:1] in self._opt_prefixes and arglen > 1:
+-                self._process_opts(arg, state)
++                expansion = self._expand_shorthand(arg)
++
++                if expansion is None:
++                    self._process_opts(arg, state)
++                else:
++                    state.rargs[:0] = [_ExpandedToken(tok) for tok in expansion]
+             elif self.allow_interspersed_args:
+                 state.largs.append(arg)
+             else:
+@@ -460,9 +492,9 @@ class _OptionParser:
+                 # use it as the value if omitting the value is allowed.
+                 value = FLAG_NEEDS_VALUE
+             else:
+-                value = state.rargs.pop(0)
++                value = _plain_token(state.rargs.pop(0))
+         else:
+-            value = tuple(state.rargs[:nargs])
++            value = tuple(_plain_token(x) for x in state.rargs[:nargs])
+             del state.rargs[:nargs]
+ 
+         return value

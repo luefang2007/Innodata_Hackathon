@@ -62,7 +62,7 @@
   <!-- panel 1: difficulty -->
   <rect x="60" y="385" width="500" height="465" rx="14" fill="#FFFFFF" stroke="#E2E8F0" stroke-width="1.5"/>
   <text x="82" y="422" font-size="20" font-weight="700" fill="#0F172A">1  Difficulty is measured, then raised</text>
-  <text x="82" y="446" font-size="14" fill="#64748B">Haiku 5.5 one-shot solves out of 3 attempts (fewer = harder)</text>
+  <text x="82" y="446" font-size="14" fill="#64748B">Haiku 5.5 one-shot solves out of 3, graded in the task container</text>
   <text x="380" y="480" font-size="12.5" fill="#64748B" text-anchor="middle">before</text>
   <text x="470" y="480" font-size="12.5" fill="#64748B" text-anchor="middle">after deepening</text>
   <g font-size="15" fill="#0F172A">

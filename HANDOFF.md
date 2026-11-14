@@ -139,6 +139,13 @@ branch `claude/dreamy-allen-5qyhc4`), but that run used a `python:3.12-bookworm`
 images built from the packages' own Dockerfiles, and click's full suite inside the task image is
 2434 passed, 0 failed, with `less` present. What is left is steps 3 to 5.
 
+**Also done at 13:49 ET, with no model calls:** the jury's 15 logged Haiku attempts on the shipped
+tasks were re-graded inside the task containers by each package's own verifier
+(`python -m taskfactory regrade`). Container and host agree on all 15: 0101 is solved 1 of 3 (the two
+misses pass 21 of 22 feature tests), the other four 3 of 3. See
+`submission_v2/haiku_oneshot_in_container.md`. This is not the official benchmark; step 3 still needs
+the Anthropic key.
+
 On a Docker machine with normal network access:
 
 1. **Build and self-check.** This also proves the Dockerfile's `apt-get` line.

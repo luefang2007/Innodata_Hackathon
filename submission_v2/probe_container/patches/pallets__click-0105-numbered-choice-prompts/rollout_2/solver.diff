@@ -1,0 +1,228 @@
+diff --git a/src/click/core.py b/src/click/core.py
+index e4b6b57..a695e70 100644
+--- a/src/click/core.py
++++ b/src/click/core.py
+@@ -2914,6 +2914,9 @@ class Option(Parameter):
+     :param prompt_required: If set to ``False``, the user will be
+         prompted for input only when the option was specified as a flag
+         without a value.
++    :param prompt_numbered: If ``True``, the prompt shows a numbered menu of the
++        choices and also accepts a menu number. Requires a :class:`~click.Choice`
++        type, and ``multiple`` and ``nargs`` must keep their defaults.
+     :param hide_input: If this is ``True`` then the input on the prompt
+         will be hidden from the user. This is useful for password input.
+     :param is_flag: forces this option to act as a flag.  The default is
+@@ -2999,6 +3002,7 @@ class Option(Parameter):
+         show_choices: bool = True,
+         show_envvar: bool = False,
+         deprecated: bool | str = False,
++        prompt_numbered: bool = False,
+         **attrs: t.Any,
+     ) -> None:
+         super().__init__(
+@@ -3054,6 +3058,18 @@ class Option(Parameter):
+         self.show_choices = show_choices
+         self.show_envvar = show_envvar
+ 
++        self.prompt_numbered = prompt_numbered
++
++        if prompt_numbered:
++            if not isinstance(self.type, types.Choice):
++                raise TypeError("'prompt_numbered' requires a 'click.Choice' type.")
++
++            if self.multiple or self.nargs != 1:
++                raise TypeError(
++                    "'prompt_numbered' cannot be used with 'multiple=True' or"
++                    " 'nargs' other than 1."
++                )
++
+         # Phase 5: validate. Raises on illegal kwarg combinations.
+         self._validate(prompt, deprecated)
+ 
+@@ -3538,6 +3554,8 @@ class Option(Parameter):
+         prompt_kwargs: t.Any = {}
+         if self.show_default is not None:
+             prompt_kwargs["show_default"] = self.show_default
++        if self.prompt_numbered:
++            prompt_kwargs["numbered"] = True
+ 
+         return prompt(
+             self.prompt,
+diff --git a/src/click/termui.py b/src/click/termui.py
+index 8fe0085..86e6dcb 100644
+--- a/src/click/termui.py
++++ b/src/click/termui.py
+@@ -1,6 +1,7 @@
+ from __future__ import annotations
+ 
+ import collections.abc as cabc
++import enum
+ import inspect
+ import io
+ import itertools
+@@ -125,6 +126,57 @@ def _build_prompt(
+     return f"{prompt}{default_preview}{suffix}"
+ 
+ 
++def _choice_label(choice: t.Any) -> str:
++    """Return the label shown for a choice in a numbered menu."""
++    if isinstance(choice, enum.Enum):
++        return choice.name
++
++    return str(choice)
++
++
++def _find_default_number(default: t.Any, choices: cabc.Sequence[t.Any]) -> int | None:
++    """Return the 1-based menu number that ``default`` previews as, if any."""
++    for index, choice in enumerate(choices, start=1):
++        if default == choice or (
++            isinstance(default, str) and default == _choice_label(choice)
++        ):
++            return index
++
++    return None
++
++
++def _echo_numbered_menu(choices: cabc.Sequence[t.Any], err: bool) -> None:
++    """Echo one line per choice, numbered from 1."""
++    width = len(str(len(choices)))
++
++    for index, choice in enumerate(choices, start=1):
++        echo(f"  {index:>{width}}) {_choice_label(choice)}", err=err)
++
++
++def _build_numbered_prompt(
++    text: str,
++    suffix: str,
++    show_default: bool | str = False,
++    default: t.Any | None = None,
++    choices: cabc.Sequence[t.Any] = (),
++) -> str:
++    prompt = f"{text} [1-{len(choices)}]"
++    default_preview = ""
++
++    if show_default:
++        if isinstance(show_default, str):
++            default_preview = f" [({show_default})]"
++        elif default is not None:
++            number = _find_default_number(default, choices)
++
++            if number is not None:
++                default_preview = f" [{number}]"
++            else:
++                default_preview = f" [{_format_default(default)}]"
++
++    return f"{prompt}{default_preview}{suffix}"
++
++
+ def _format_default(default: V) -> V | str:
+     if isinstance(default, (io.IOBase, _LazyFile)):
+         name = getattr(default, "name", None)
+@@ -147,6 +199,7 @@ def prompt(
+     show_default: bool | str = True,
+     err: bool = False,
+     show_choices: bool = True,
++    numbered: bool = False,
+ ) -> str: ...
+ 
+ 
+@@ -162,6 +215,7 @@ def prompt(
+     show_default: bool | str = True,
+     err: bool = False,
+     show_choices: bool = True,
++    numbered: bool = False,
+ ) -> V: ...
+ 
+ 
+@@ -176,6 +230,7 @@ def prompt(
+     show_default: bool | str = True,
+     err: bool = False,
+     show_choices: bool = True,
++    numbered: bool = False,
+ ) -> V:
+     """Prompts a user for input.  This is a convenience function that can
+     be used to prompt a user for input later.
+@@ -206,6 +261,10 @@ def prompt(
+                          show_choices is true and text is "Group by" then the
+                          prompt will be "Group by (day, week): ".
+ 
++    .. versionadded:: 8.6.0
++        Added the ``numbered`` parameter, which shows a numbered menu for a
++        :class:`~click.Choice` and accepts a menu number as input.
++
+     .. versionchanged:: 8.5.0
+         Generically typed: the return type is narrowed by ``type``,
+         ``value_proc``, or ``default`` instead of being ``Any``. Runtime
+@@ -244,12 +303,29 @@ def prompt(
+                 echo(None, err=err)
+             raise Abort() from None
+ 
++    choices: list[t.Any] = []
++
++    if numbered:
++        if not isinstance(type, Choice):
++            raise TypeError("'numbered' requires a 'click.Choice' type.")
++
++        if not type.choices:
++            raise ValueError("'numbered' requires at least one choice.")
++
++        choices = list(type.choices)
++        _echo_numbered_menu(choices, err)
++
+     if value_proc is None:
+         value_proc = convert_type(type, default)
+ 
+-    prompt = _build_prompt(
+-        text, prompt_suffix, show_default, default, show_choices, type
+-    )
++    if numbered:
++        prompt = _build_numbered_prompt(
++            text, prompt_suffix, show_default, default, choices
++        )
++    else:
++        prompt = _build_prompt(
++            text, prompt_suffix, show_default, default, show_choices, type
++        )
+ 
+     if confirmation_prompt:
+         if confirmation_prompt is True:
+@@ -258,6 +334,8 @@ def prompt(
+         confirmation_prompt = _build_prompt(confirmation_prompt, prompt_suffix)
+ 
+     while True:
++        from_default = False
++
+         while True:
+             value = prompt_func(prompt)
+             if value:
+@@ -267,9 +345,29 @@ def prompt(
+                 # value_proc like typed input, so the annotation is only
+                 # accurate for typed input.
+                 value = t.cast("str", default)
++                from_default = True
+                 break
++
++        proc_value: t.Any = value
++
++        if numbered and not from_default and re.fullmatch(r"[0-9]+", value):
++            index = int(value)
++
++            if not 1 <= index <= len(choices):
++                error = (
++                    f"'{value}' is not a valid selection."
++                    f" Enter a number from 1 to {len(choices)}."
++                )
++                if hide_input:
++                    error = _mask_hidden_input(error, value)
++
++                echo(f"Error: {error}", err=err)
++                continue
++
++            proc_value = choices[index - 1]
++
+         try:
+-            result = value_proc(value)
++            result = value_proc(proc_value)
+         except UsageError as e:
+             message = _mask_hidden_input(e.message, value) if hide_input else e.message
+             echo(_("Error: {message}").format(message=message), err=err)

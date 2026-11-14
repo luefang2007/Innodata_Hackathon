@@ -4,6 +4,7 @@ from __future__ import annotations
 import argparse
 import json
 import sys
+import tempfile
 from pathlib import Path
 
 from . import config, pipeline
@@ -35,6 +36,13 @@ def main(argv=None) -> int:
     pr.add_argument("--effort", default="high")
     pr.add_argument("--workers", type=int, default=8)
     pr.add_argument("--out", type=Path, default=config.ROOT.parent / "submission" / "probe")
+    rg = sub.add_parser("regrade", help="re-grade the jury's logged attempts inside the task containers "
+                                        "(Docker; no model calls)")
+    rg.add_argument("--run", type=Path, required=True, help="run directory with summary.json and jury logs")
+    rg.add_argument("--tasks", type=Path, required=True, help="the emitted packages of that run")
+    rg.add_argument("--out", type=Path, default=None)
+    rg.add_argument("--scratch", type=Path, default=Path(tempfile.gettempdir()) / "taskfactory-regrade",
+                    help="a directory without spaces in its path, for the generated shell script")
     rp = sub.add_parser("repackage", help="re-emit packages with the current environment templates "
                                           "(spec, gold, tests and test lists are kept; no model calls)")
     rp.add_argument("tasks", nargs="+", type=Path)
@@ -72,6 +80,15 @@ def main(argv=None) -> int:
               f"{s['wall_seconds']:.0f}s")
         for name, t in s["tasks"].items():
             print(f"  {name:60s} resolved {t['resolve']}  rewards {t['rewards']}  traps {t['n_traps']}")
+        return 0
+    if a.cmd == "regrade":
+        from .regrade import run as regrade_run
+        out = a.out or (a.tasks.parent / "probe_container")
+        res = regrade_run(a.run, a.tasks, out, a.scratch)
+        for iid, t in res["tasks"].items():
+            print(f"{iid:58s} container {t['container_resolved']}/{t['graded']}  host {t['host_resolved']}/"
+                  f"{len(t['attempts'])}  agree={t['agree']}  "
+                  f"{[x['container_reward'] if not x['problem'] else x['problem'] for x in t['attempts']]}")
         return 0
     if a.cmd == "repackage":
         from . import package as pk

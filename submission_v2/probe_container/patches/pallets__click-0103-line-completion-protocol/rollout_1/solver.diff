@@ -1,0 +1,167 @@
+diff --git a/src/click/shell_completion.py b/src/click/shell_completion.py
+index 9cf2314..155d05b 100644
+--- a/src/click/shell_completion.py
++++ b/src/click/shell_completion.py
+@@ -13,6 +13,7 @@ from .core import Group
+ from .core import Option
+ from .core import Parameter
+ from .core import ParameterSource
++from .exceptions import ClickException
+ from .utils import echo
+ 
+ 
+@@ -41,16 +42,20 @@ def shell_complete(
+     if comp_cls is None:
+         return 1
+ 
+-    comp = comp_cls(cli, ctx_args, prog_name, complete_var)
+-
+-    # Write bytes, otherwise Windows text stdout translates LF to CRLF and breaks.
+-    if instruction == "source":
+-        echo(comp.source().encode(), nl=False)
+-        return 0
+-
+-    if instruction == "complete":
+-        echo(comp.complete().encode())
+-        return 0
++    try:
++        comp = comp_cls(cli, ctx_args, prog_name, complete_var)
++
++        # Write bytes, otherwise Windows text stdout translates LF to CRLF and breaks.
++        if instruction == "source":
++            echo(comp.source().encode(), nl=False)
++            return 0
++
++        if instruction == "complete":
++            echo(comp.complete().encode(), nl=comp._complete_nl)
++            return 0
++    except CompletionRequestError as e:
++        e.show()
++        return 1
+ 
+     return 1
+ 
+@@ -64,6 +69,15 @@ else:
+     _ValueT_co = t.TypeVar("_ValueT_co", covariant=True)
+ 
+ 
++class CompletionRequestError(ClickException):
++    """Raised by a completion class when the completion request in the
++    environment is malformed. Click writes the message to stderr and exits
++    with status 1.
++    """
++
++    exit_code: t.ClassVar[int] = 1
++
++
+ class CompletionItem(t.Generic[_ValueT_co]):
+     """Represents a completion value and metadata about the value. The
+     default metadata is ``type`` to indicate special shell handling,
+@@ -298,6 +312,11 @@ class ShellComplete:
+     be provided by subclasses.
+     """
+ 
++    # Whether the output of the complete instruction is terminated by a
++    # newline. Line based protocols that write nothing when there are no
++    # completions turn this off.
++    _complete_nl: t.ClassVar[bool] = True
++
+     cli: Command
+     ctx_args: cabc.MutableMapping[str, t.Any]
+     prog_name: str
+@@ -547,9 +566,95 @@ class PowerShellComplete(ShellComplete):
+         return f"{item.type}\n{item.value}\n{help_}"
+ 
+ 
++class LineComplete(ShellComplete):
++    """Shell completion for the ``complete -C`` protocol. Bash runs the
++    program with ``COMP_LINE`` and ``COMP_POINT`` set in the environment and
++    reads one completion per line from stdout.
++    """
++
++    name: t.ClassVar[str] = "line"
++    source_template: t.ClassVar[str] = (
++        "complete -o default -o nosort -C"
++        " '%(complete_var)s=line_complete %(prog_name)s' %(prog_name)s\n"
++    )
++    _complete_nl: t.ClassVar[bool] = False
++
++    def _split_line(self) -> tuple[list[str], str]:
++        """Split the text before the cursor in ``COMP_LINE`` into the complete
++        words and the incomplete word.
++        """
++        line = os.environ.get("COMP_LINE")
++
++        if line is None:
++            raise CompletionRequestError("COMP_LINE is not set.")
++
++        raw_point = os.environ.get("COMP_POINT", "")
++        length = len(line)
++
++        if raw_point == "":
++            point = length
++        else:
++            if re.fullmatch(r"[0-9]+", raw_point) is None:
++                raise CompletionRequestError(
++                    f"Invalid COMP_POINT value {raw_point!r}:"
++                    " expected a non-negative integer."
++                )
++
++            point = int(raw_point)
++
++            if point > length:
++                noun = "character" if length == 1 else "characters"
++                raise CompletionRequestError(
++                    f"COMP_POINT {point} is past the end of COMP_LINE"
++                    f" ({length} {noun})."
++                )
++
++        text = line[:point]
++        words = split_arg_string(text)
++        # Appending a non-whitespace character adds a word only when the text
++        # ends with whitespace that separates two words.
++        probe = split_arg_string(f"{text}x")
++
++        if len(probe) != len(words):
++            return words, ""
++
++        return words[:-1], words[-1]
++
++    def get_completion_args(self) -> tuple[list[str], str]:
++        words, incomplete = self._split_line()
++        return words[1:], incomplete
++
++    def format_completion(self, item: CompletionItem[str]) -> str:
++        return str(item.value)
++
++    def complete(self) -> str:
++        words, incomplete = self._split_line()
++
++        # The first complete word is the program name, which is discarded.
++        # Without it there is nothing to complete.
++        if not words:
++            return ""
++
++        lines = []
++
++        for item in self.get_completions(words[1:], incomplete):
++            if item.type != "plain":
++                continue
++
++            value = self.format_completion(item)
++
++            if "\n" in value or "\r" in value:
++                continue
++
++            lines.append(f"{value}\n")
++
++        return "".join(lines)
++
++
+ _available_shells: t.Final[dict[str, type[ShellComplete]]] = {
+     "bash": BashComplete,
+     "fish": FishComplete,
++    "line": LineComplete,
+     "powershell": PowerShellComplete,
+     "zsh": ZshComplete,
+ }

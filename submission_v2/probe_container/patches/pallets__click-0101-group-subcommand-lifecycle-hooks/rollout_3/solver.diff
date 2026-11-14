@@ -1,0 +1,192 @@
+diff --git a/src/click/__init__.py b/src/click/__init__.py
+index a34ab02..b885701 100644
+--- a/src/click/__init__.py
++++ b/src/click/__init__.py
+@@ -36,6 +36,7 @@ from .exceptions import FileError as FileError
+ from .exceptions import MissingParameter as MissingParameter
+ from .exceptions import NoSuchCommand as NoSuchCommand
+ from .exceptions import NoSuchOption as NoSuchOption
++from .exceptions import SkipSubcommand as SkipSubcommand
+ from .exceptions import UsageError as UsageError
+ from .formatting import HelpFormatter as HelpFormatter
+ from .formatting import wrap_text as wrap_text
+diff --git a/src/click/core.py b/src/click/core.py
+index e4b6b57..0b7b183 100644
+--- a/src/click/core.py
++++ b/src/click/core.py
+@@ -30,6 +30,7 @@ from .exceptions import Exit
+ from .exceptions import MissingParameter
+ from .exceptions import NoArgsIsHelpError
+ from .exceptions import NoSuchCommand
++from .exceptions import SkipSubcommand
+ from .exceptions import UsageError
+ from .formatting import HelpFormatter
+ from .formatting import join_options
+@@ -59,6 +60,12 @@ V = t.TypeVar("V")
+ # expected to claim it.
+ _HELP_OPTION_STORAGE_NAME = "_click_default_help"
+ 
++_SubcommandHooks = tuple[
++    list[t.Callable[..., t.Any]],
++    list[t.Callable[..., t.Any]],
++    list[t.Callable[..., t.Any]],
++]
++
+ 
+ def _complete_visible_commands(
+     ctx: Context, incomplete: str
+@@ -1738,6 +1745,9 @@ class Group(Command):
+         subcommand_metavar: str | None = None,
+         chain: bool = False,
+         result_callback: t.Callable[..., t.Any] | None = None,
++        before_subcommand: t.Callable[[Context], t.Any] | None = None,
++        after_subcommand: t.Callable[[Context, t.Any], t.Any] | None = None,
++        teardown_subcommand: t.Callable[[Context, BaseException | None], t.Any] | None = None,
+         **kwargs: t.Any,
+     ) -> None:
+         super().__init__(name, **kwargs)
+@@ -1774,6 +1784,18 @@ class Group(Command):
+         # The result callback that is stored. This can be set or
+         # overridden with the :func:`result_callback` decorator.
+         self._result_callback = result_callback
++        self._before_subcommand_hooks: list[t.Callable[..., t.Any]] = []
++        self._after_subcommand_hooks: list[t.Callable[..., t.Any]] = []
++        self._teardown_subcommand_hooks: list[t.Callable[..., t.Any]] = []
++
++        if before_subcommand is not None:
++            self._before_subcommand_hooks.append(before_subcommand)
++
++        if after_subcommand is not None:
++            self._after_subcommand_hooks.append(after_subcommand)
++
++        if teardown_subcommand is not None:
++            self._teardown_subcommand_hooks.append(teardown_subcommand)
+ 
+         if self.chain:
+             for param in self.params:
+@@ -2050,8 +2072,9 @@ class Group(Command):
+                 ctx.invoked_subcommand = cmd_name
+                 super().invoke(ctx)
+                 sub_ctx = cmd.make_context(cmd_name, args, parent=ctx)
++                hooks = self._subcommand_hooks()
+                 with sub_ctx:
+-                    return _process_result(sub_ctx.command.invoke(sub_ctx))
++                    return _process_result(self._invoke_subcommand(sub_ctx, hooks))
+ 
+         # In chain mode we create the contexts step by step, but after the
+         # base command has been invoked.  Because at that point we do not
+@@ -2076,15 +2099,88 @@ class Group(Command):
+                     allow_extra_args=True,
+                     allow_interspersed_args=False,
+                 )
+-                contexts.append(sub_ctx)
++                contexts.append((sub_ctx, self._subcommand_hooks()))
+                 args, sub_ctx.args = sub_ctx.args, []
+ 
+             rv = []
+-            for sub_ctx in contexts:
++            for sub_ctx, hooks in contexts:
+                 with sub_ctx:
+-                    rv.append(sub_ctx.command.invoke(sub_ctx))
++                    rv.append(self._invoke_subcommand(sub_ctx, hooks))
+             return _process_result(rv)
+ 
++    def before_subcommand(self, f: F) -> F:
++        """Register a hook that runs before each direct subcommand starts. It is
++        called as ``f(ctx)``. Raise :exc:`SkipSubcommand` to skip the subcommand.
++        Can be used as a decorator, with or without parentheses.
++        """
++        self._before_subcommand_hooks.append(f)
++        return f
++
++    def after_subcommand(self, f: F) -> F:
++        """Register a hook that runs after each direct subcommand returns, called
++        as ``f(ctx, result)``. Hooks run in reverse registration order.
++        """
++        self._after_subcommand_hooks.append(f)
++        return f
++
++    def teardown_subcommand(self, f: F) -> F:
++        """Register a hook that runs once per started direct subcommand, called
++        as ``f(ctx, exc)``. Hooks run in reverse registration order.
++        """
++        self._teardown_subcommand_hooks.append(f)
++        return f
++
++    def _subcommand_hooks(self) -> _SubcommandHooks:
++        """Snapshot the hooks that apply to a subcommand that is starting now."""
++        return (
++            list(self._before_subcommand_hooks),
++            list(self._after_subcommand_hooks),
++            list(self._teardown_subcommand_hooks),
++        )
++
++    def _invoke_subcommand(self, sub_ctx: Context, hooks: _SubcommandHooks) -> t.Any:
++        """Run the hook sequence of one started direct subcommand and return the
++        value reported for it.
++        """
++        before, after, teardown = hooks
++        exc: BaseException | None = None
++        result: t.Any = None
++
++        try:
++            skipped = False
++
++            try:
++                for hook in before:
++                    with augment_usage_errors(sub_ctx):
++                        hook(sub_ctx)
++            except SkipSubcommand as skip:
++                skipped = True
++                result = skip.result
++
++            if not skipped:
++                result = sub_ctx.command.invoke(sub_ctx)
++
++                for hook in reversed(after):
++                    with augment_usage_errors(sub_ctx):
++                        hook(sub_ctx, result)
++        except BaseException as e:
++            exc = e
++
++        failure = exc
++
++        for hook in reversed(teardown):
++            try:
++                with augment_usage_errors(sub_ctx):
++                    hook(sub_ctx, exc)
++            except BaseException as e:
++                exc = e
++                failure = e
++
++        if failure is not None:
++            raise failure
++
++        return result
++
+     def resolve_command(
+         self, ctx: Context, args: list[str]
+     ) -> tuple[str | None, Command | None, list[str]]:
+diff --git a/src/click/exceptions.py b/src/click/exceptions.py
+index 6272c38..c0b1461 100644
+--- a/src/click/exceptions.py
++++ b/src/click/exceptions.py
+@@ -359,6 +359,18 @@ class FileError(ClickException):
+         )
+ 
+ 
++class SkipSubcommand(ClickException):
++    """Raise from a ``before_subcommand`` hook of a :class:`Group` to skip the
++    subcommand. ``result`` is reported in place of the subcommand's return value.
++    """
++
++    result: t.Any
++
++    def __init__(self, result: t.Any = None) -> None:
++        super().__init__("SkipSubcommand raised outside of a before_subcommand hook.")
++        self.result = result
++
++
+ class Abort(RuntimeError):
+     """An internal signalling exception that signals Click to abort."""
+ 

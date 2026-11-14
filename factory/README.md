@@ -25,7 +25,11 @@ five are still easy by that proxy. Pairwise similarity of the five is at most 0.
 `selfcheck.sh` (Harbor 0.26.0, Docker 29.9.3, images built from each package's own Dockerfile) reports
 oracle 1.0 and nop 0.0 for all five (`evidence/selfcheck/SUMMARY.txt`), and inside the built task image
 click's full suite is green (2434 passed, 0 failed). A second Linux machine reproduced the local gates
-and the oracle/nop results. No official resolve@k benchmark has been run. Total API spend was $23.76
+and the oracle/nop results. The juror's 15 logged attempts on the shipped tasks were also re-graded
+inside the task containers by each package's own `tests/test.sh` (`python -m taskfactory regrade`, no
+model calls): the container agrees with the host on every attempt, 1 of 3 solved for 0101 and 3 of 3 for
+the others (`evidence/submission_v2/haiku_oneshot_in_container.md`). No official resolve@k benchmark
+(terminus-2 agent) has been run. Total API spend was $23.76
 (run 1 $10.95, probe $1.80, submitted run $11.01).
 
 ## Setup

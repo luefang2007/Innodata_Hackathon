@@ -66,6 +66,10 @@ def build(team: str, tasks_dir: Path, telemetry: Path, out_root: Path, extras: l
         label = root.name
         runs += _tar_dirs(root / "runs", dest / "evidence" / label / "runs")
         probes += _tar_dirs(root / "probe", dest / "evidence" / label / "probe")
+        if (root / "probe_container").exists():                   # the jury's attempts re-graded in the containers
+            (dest / "evidence" / label).mkdir(parents=True, exist_ok=True)
+            with tarfile.open(dest / "evidence" / label / "probe_container.tar.gz", "w:gz") as tar:
+                tar.add(root / "probe_container", arcname="probe_container")
         for report in sorted(root.glob("*.md")):
             (dest / "evidence" / label).mkdir(parents=True, exist_ok=True)
             shutil.copyfile(report, dest / "evidence" / label / report.name)
