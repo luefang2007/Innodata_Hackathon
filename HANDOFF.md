@@ -176,8 +176,29 @@ On a Docker machine with normal network access:
    python -m taskfactory bundle --team <TeamName> --tasks ../submission_v2/generated_tasks --telemetry ../submission_v2/pipeline_run.json --extra ../submission/generated_tasks --extra ../submission/generated_tasks_composite
    ```
 
-5. Fill in "Team contributions" in `factory/README.md`, and make the slides (max 5).
-   `INNOVATION.png` at the repo root is a ready-made figure of the pipeline and its measured results.
+5. Fill in "Team contributions" in `factory/README.md`.
+
+6. **Slides (made at 14:20 ET):** `Track1_Slides.pptx` in the repo folder, 5 slides on the organizers'
+   template. `slides/build_slides.py` builds it and reads every number from `submission_v2/`. Only the
+   team name and the member names are blank. Fill them in and rebuild, then run step 4 again so the deck
+   is in the ZIP (`bundle` copies `*Track1*.pptx`):
+
+   ```bash
+   factory/.cache/venv/Scripts/python.exe slides/build_slides.py --team "<Team name>" --members "<A, B, C, D, E>"
+   ```
+
+   The deck is not committed, because it is built on the organizers' template. It needs `python-pptx`.
+   `INNOVATION.png` at the repo root is a spare figure of the pipeline and its measured results.
+
+7. **Live demo, no API spend:** from the repo folder run `.\demo` (`demo.cmd`, about 90 s).
+   - It forces `FACTORY_OFFLINE=1`, replays the model answers from `factory/.cache` (so it only works on
+     Lue's laptop) and runs every check live. Output goes to `demo/`, which is git-ignored.
+   - It then prints one fresh package's feature request, each check with PASS or FAIL, the existing tests
+     that ran, the recorded jury result per submitted task and the recorded Harbor self-check.
+   - Offline, 4 of 5 packages complete. 0103's first draft fails its own tests and the repair step is a
+     live model call, so the replay stops there. The solver jury is also skipped offline.
+   - `.\demo --regrade` also grades the jury's Haiku attempts again inside the task containers (Docker in
+     WSL, about 50 s more). `.\demo --skip-generate` only prints the last demo run.
 
 ## Still to do (older list)
 

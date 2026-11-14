@@ -16,6 +16,11 @@ Presentation Template.pptx
 # generated submission folder and zip (rebuild with `python -m taskfactory bundle`)
 dist/
 
+# the finished deck is built on the organizers' template (rebuild with slides/build_slides.py; it
+# travels in the submission zip), and the live demo's scratch output
+Track1_Slides.pptx
+demo/
+
 # junk
 ~$*
 .DS_Store
