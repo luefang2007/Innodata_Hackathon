@@ -1,0 +1,392 @@
+{
+  "tests": [
+    {
+      "name": "tests/test_line_completion_protocol.py::test_unknown_line_instruction_exits_with_1",
+      "status": "PASSED"
+    },
+    {
+      "name": "tests/test_shell_completion.py::test_command",
+      "status": "PASSED"
+    },
+    {
+      "name": "tests/test_shell_completion.py::test_group",
+      "status": "PASSED"
+    },
+    {
+      "name": "tests/test_shell_completion.py::test_nested_group[args0--expect0]",
+      "status": "PASSED"
+    },
+    {
+      "name": "tests/test_shell_completion.py::test_nested_group[args1--expect1]",
+      "status": "PASSED"
+    },
+    {
+      "name": "tests/test_shell_completion.py::test_nested_group[args2--expect2]",
+      "status": "PASSED"
+    },
+    {
+      "name": "tests/test_shell_completion.py::test_nested_group[args3---expect3]",
+      "status": "PASSED"
+    },
+    {
+      "name": "tests/test_shell_completion.py::test_nested_group[args4--expect4]",
+      "status": "PASSED"
+    },
+    {
+      "name": "tests/test_shell_completion.py::test_nested_group[args5---expect5]",
+      "status": "PASSED"
+    },
+    {
+      "name": "tests/test_shell_completion.py::test_group_command_same_option",
+      "status": "PASSED"
+    },
+    {
+      "name": "tests/test_shell_completion.py::test_chained",
+      "status": "PASSED"
+    },
+    {
+      "name": "tests/test_shell_completion.py::test_help_option",
+      "status": "PASSED"
+    },
+    {
+      "name": "tests/test_shell_completion.py::test_argument_order",
+      "status": "PASSED"
+    },
+    {
+      "name": "tests/test_shell_completion.py::test_argument_default",
+      "status": "PASSED"
+    },
+    {
+      "name": "tests/test_shell_completion.py::test_type_choice",
+      "status": "PASSED"
+    },
+    {
+      "name": "tests/test_shell_completion.py::test_choice_special_characters",
+      "status": "PASSED"
+    },
+    {
+      "name": "tests/test_shell_completion.py::test_choice_conflicting_prefix",
+      "status": "PASSED"
+    },
+    {
+      "name": "tests/test_shell_completion.py::test_option_count",
+      "status": "PASSED"
+    },
+    {
+      "name": "tests/test_shell_completion.py::test_option_optional",
+      "status": "PASSED"
+    },
+    {
+      "name": "tests/test_shell_completion.py::test_path_types[type0-file]",
+      "status": "PASSED"
+    },
+    {
+      "name": "tests/test_shell_completion.py::test_path_types[type1-file]",
+      "status": "PASSED"
+    },
+    {
+      "name": "tests/test_shell_completion.py::test_path_types[type2-dir]",
+      "status": "PASSED"
+    },
+    {
+      "name": "tests/test_shell_completion.py::test_absolute_path",
+      "status": "PASSED"
+    },
+    {
+      "name": "tests/test_shell_completion.py::test_option_flag",
+      "status": "PASSED"
+    },
+    {
+      "name": "tests/test_shell_completion.py::test_flag_option_with_nargs_option",
+      "status": "PASSED"
+    },
+    {
+      "name": "tests/test_shell_completion.py::test_option_custom",
+      "status": "PASSED"
+    },
+    {
+      "name": "tests/test_shell_completion.py::test_option_multiple",
+      "status": "PASSED"
+    },
+    {
+      "name": "tests/test_shell_completion.py::test_option_nargs",
+      "status": "PASSED"
+    },
+    {
+      "name": "tests/test_shell_completion.py::test_argument_nargs",
+      "status": "PASSED"
+    },
+    {
+      "name": "tests/test_shell_completion.py::test_double_dash",
+      "status": "PASSED"
+    },
+    {
+      "name": "tests/test_shell_completion.py::test_hidden",
+      "status": "PASSED"
+    },
+    {
+      "name": "tests/test_shell_completion.py::test_add_different_name",
+      "status": "PASSED"
+    },
+    {
+      "name": "tests/test_shell_completion.py::test_completion_item_data",
+      "status": "PASSED"
+    },
+    {
+      "name": "tests/test_shell_completion.py::test_full_source[bash]",
+      "status": "PASSED"
+    },
+    {
+      "name": "tests/test_shell_completion.py::test_full_source[zsh]",
+      "status": "PASSED"
+    },
+    {
+      "name": "tests/test_shell_completion.py::test_full_source[fish]",
+      "status": "PASSED"
+    },
+    {
+      "name": "tests/test_shell_completion.py::test_full_source_powershell",
+      "status": "PASSED"
+    },
+    {
+      "name": "tests/test_shell_completion.py::test_full_complete[bash-env0-plain,a\\nplain,b\\n]",
+      "status": "PASSED"
+    },
+    {
+      "name": "tests/test_shell_completion.py::test_full_complete[bash-env1-plain,b\\n]",
+      "status": "PASSED"
+    },
+    {
+      "name": "tests/test_shell_completion.py::test_full_complete[zsh-env2-plain\\na\\n_\\nplain\\nb\\nbee\\n]",
+      "status": "PASSED"
+    },
+    {
+      "name": "tests/test_shell_completion.py::test_full_complete[zsh-env3-plain\\nb\\nbee\\n]",
+      "status": "PASSED"
+    },
+    {
+      "name": "tests/test_shell_completion.py::test_full_complete[fish-env4-plain,a\\nplain,b\\tbee\\n]",
+      "status": "PASSED"
+    },
+    {
+      "name": "tests/test_shell_completion.py::test_full_complete[fish-env5-plain,b\\tbee\\n]",
+      "status": "PASSED"
+    },
+    {
+      "name": "tests/test_shell_completion.py::test_full_complete[fish-env6-plain,b\\tbee\\n]",
+      "status": "PASSED"
+    },
+    {
+      "name": "tests/test_shell_completion.py::test_full_complete[powershell-env7-plain\\na\\n_\\nplain\\nb\\nbee\\n]",
+      "status": "PASSED"
+    },
+    {
+      "name": "tests/test_shell_completion.py::test_full_complete[powershell-env8-plain\\nb\\nbee\\n]",
+      "status": "PASSED"
+    },
+    {
+      "name": "tests/test_shell_completion.py::test_source_uses_lf_line_endings",
+      "status": "PASSED"
+    },
+    {
+      "name": "tests/test_shell_completion.py::test_zsh_full_complete_with_colons[env0-plain\\na\\n_\\nplain\\nb\\nbee\\nplain\\nc\\\\:d\\ncee:dee\\nplain\\nc:e\\n_\\n]",
+      "status": "PASSED"
+    },
+    {
+      "name": "tests/test_shell_completion.py::test_zsh_full_complete_with_colons[env1-plain\\nc\\\\:d\\ncee:dee\\nplain\\nc:e\\n_\\n]",
+      "status": "PASSED"
+    },
+    {
+      "name": "tests/test_shell_completion.py::test_zsh_full_complete_with_colons[env2-plain\\nc\\\\:d\\ncee:dee\\nplain\\nc:e\\n_\\n]",
+      "status": "PASSED"
+    },
+    {
+      "name": "tests/test_shell_completion.py::test_context_settings",
+      "status": "PASSED"
+    },
+    {
+      "name": "tests/test_shell_completion.py::test_choice_case_sensitive[False-expect0]",
+      "status": "PASSED"
+    },
+    {
+      "name": "tests/test_shell_completion.py::test_choice_case_sensitive[True-expect1]",
+      "status": "PASSED"
+    },
+    {
+      "name": "tests/test_shell_completion.py::test_add_completion_class",
+      "status": "PASSED"
+    },
+    {
+      "name": "tests/test_shell_completion.py::test_add_completion_class_with_name",
+      "status": "PASSED"
+    },
+    {
+      "name": "tests/test_shell_completion.py::test_add_completion_class_decorator",
+      "status": "PASSED"
+    },
+    {
+      "name": "tests/test_shell_completion.py::test_files_closed",
+      "status": "PASSED"
+    },
+    {
+      "name": "tests/test_shell_completion.py::test_fish_format_completion_escapes_help",
+      "status": "PASSED"
+    },
+    {
+      "name": "tests/test_shell_completion.py::test_powershell_format_completion_escapes_help",
+      "status": "PASSED"
+    },
+    {
+      "name": "tests/test_line_completion_protocol.py::test_public_names_and_registration",
+      "status": "FAILED"
+    },
+    {
+      "name": "tests/test_line_completion_protocol.py::test_subcommands_completed_at_end_of_line_hidden_excluded",
+      "status": "FAILED"
+    },
+    {
+      "name": "tests/test_line_completion_protocol.py::test_option_value_with_equals_prints_bare_value",
+      "status": "FAILED"
+    },
+    {
+      "name": "tests/test_line_completion_protocol.py::test_comp_point_truncates_line[7]",
+      "status": "FAILED"
+    },
+    {
+      "name": "tests/test_line_completion_protocol.py::test_comp_point_truncates_line[007]",
+      "status": "FAILED"
+    },
+    {
+      "name": "tests/test_line_completion_protocol.py::test_unset_or_empty_point_means_end_of_line[None]",
+      "status": "FAILED"
+    },
+    {
+      "name": "tests/test_line_completion_protocol.py::test_unset_or_empty_point_means_end_of_line[]",
+      "status": "FAILED"
+    },
+    {
+      "name": "tests/test_line_completion_protocol.py::test_unset_or_empty_point_means_end_of_line[7]",
+      "status": "FAILED"
+    },
+    {
+      "name": "tests/test_line_completion_protocol.py::test_missing_comp_line_is_reported_before_point",
+      "status": "FAILED"
+    },
+    {
+      "name": "tests/test_line_completion_protocol.py::test_invalid_comp_point_value[-1]",
+      "status": "FAILED"
+    },
+    {
+      "name": "tests/test_line_completion_protocol.py::test_invalid_comp_point_value[+3]",
+      "status": "FAILED"
+    },
+    {
+      "name": "tests/test_line_completion_protocol.py::test_invalid_comp_point_value[ 3]",
+      "status": "FAILED"
+    },
+    {
+      "name": "tests/test_line_completion_protocol.py::test_invalid_comp_point_value[3 ]",
+      "status": "FAILED"
+    },
+    {
+      "name": "tests/test_line_completion_protocol.py::test_invalid_comp_point_value[1.0]",
+      "status": "FAILED"
+    },
+    {
+      "name": "tests/test_line_completion_protocol.py::test_invalid_comp_point_value[abc]",
+      "status": "FAILED"
+    },
+    {
+      "name": "tests/test_line_completion_protocol.py::test_invalid_comp_point_value[0x2]",
+      "status": "FAILED"
+    },
+    {
+      "name": "tests/test_line_completion_protocol.py::test_comp_point_past_end_of_line[tool st-12-COMP_POINT 12 is past the end of COMP_LINE (7 characters).]",
+      "status": "FAILED"
+    },
+    {
+      "name": "tests/test_line_completion_protocol.py::test_comp_point_past_end_of_line[t-0002-COMP_POINT 2 is past the end of COMP_LINE (1 character).]",
+      "status": "FAILED"
+    },
+    {
+      "name": "tests/test_line_completion_protocol.py::test_comp_point_past_end_of_line[-1-COMP_POINT 1 is past the end of COMP_LINE (0 characters).]",
+      "status": "FAILED"
+    },
+    {
+      "name": "tests/test_line_completion_protocol.py::test_no_complete_words_prints_nothing[-None]",
+      "status": "FAILED"
+    },
+    {
+      "name": "tests/test_line_completion_protocol.py::test_no_complete_words_prints_nothing[  -None]",
+      "status": "FAILED"
+    },
+    {
+      "name": "tests/test_line_completion_protocol.py::test_no_complete_words_prints_nothing[to-None]",
+      "status": "FAILED"
+    },
+    {
+      "name": "tests/test_line_completion_protocol.py::test_no_complete_words_prints_nothing[tool st-0]",
+      "status": "FAILED"
+    },
+    {
+      "name": "tests/test_line_completion_protocol.py::test_no_complete_words_prints_nothing[tool st-2]",
+      "status": "FAILED"
+    },
+    {
+      "name": "tests/test_line_completion_protocol.py::test_program_word_is_not_checked",
+      "status": "FAILED"
+    },
+    {
+      "name": "tests/test_line_completion_protocol.py::test_tokenisation_of_incomplete_word[tool pa-got:pa\\n]",
+      "status": "FAILED"
+    },
+    {
+      "name": "tests/test_line_completion_protocol.py::test_tokenisation_of_incomplete_word[tool pa -got:\\n]",
+      "status": "FAILED"
+    },
+    {
+      "name": "tests/test_line_completion_protocol.py::test_tokenisation_of_incomplete_word[tool pa\\t-got:\\n]",
+      "status": "FAILED"
+    },
+    {
+      "name": "tests/test_line_completion_protocol.py::test_tokenisation_of_incomplete_word[tool 'my -got:my \\n]",
+      "status": "FAILED"
+    },
+    {
+      "name": "tests/test_line_completion_protocol.py::test_tokenisation_of_incomplete_word[tool my\\\\ -got:my \\n]",
+      "status": "FAILED"
+    },
+    {
+      "name": "tests/test_line_completion_protocol.py::test_tokenisation_of_incomplete_word[tool ''-got:\\n]",
+      "status": "FAILED"
+    },
+    {
+      "name": "tests/test_line_completion_protocol.py::test_tokenisation_of_incomplete_word[tool \"a b\"-got:a b\\n]",
+      "status": "FAILED"
+    },
+    {
+      "name": "tests/test_line_completion_protocol.py::test_output_keeps_only_single_line_plain_items",
+      "status": "FAILED"
+    },
+    {
+      "name": "tests/test_line_completion_protocol.py::test_path_completion_yields_empty_stdout",
+      "status": "FAILED"
+    },
+    {
+      "name": "tests/test_line_completion_protocol.py::test_option_names_hidden_repeated_and_double_dash",
+      "status": "FAILED"
+    },
+    {
+      "name": "tests/test_line_completion_protocol.py::test_chained_group_and_forwarded_context_kwargs",
+      "status": "FAILED"
+    },
+    {
+      "name": "tests/test_line_completion_protocol.py::test_line_source_prints_template",
+      "status": "FAILED"
+    },
+    {
+      "name": "tests/test_line_completion_protocol.py::test_request_error_from_custom_shell_class",
+      "status": "FAILED"
+    }
+  ]
+}

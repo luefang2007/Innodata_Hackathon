@@ -1,21 +1,45 @@
 # click task factory
 
 A pipeline that turns `pallets/click` (pinned at tag 8.5.1, commit `cf19179e8e2f`) into
-feature-development tasks in the Harbor package format, and only emits a package after it has passed
-every validation gate locally.
+feature-development tasks in the Harbor package format. It only emits a package after the package has
+passed every validation gate locally, and it measures each task's difficulty with the benchmark model
+before the task ships.
+
+## What is in this submission
+
+| Path | What |
+|---|---|
+| `generated_tasks/` | The 5 submitted packages: the raw output of run `20261114T180829Z-s1` (solver jury on) |
+| `pipeline_run.json` | Per-task telemetry for those 5 packages |
+| `factory/` | The pipeline source, this README and `VARIATION.md` (the variation writeup) |
+| `evidence/submission_v2/` | Logs of the submitted run, its summary and the measured-variation report |
+| `evidence/submission/` | Logs of run 1 (`20261114T162521Z-s1`), whose design and implementation calls the submitted run reused, plus the stand-alone probe |
+| `extras/` | Earlier package sets that are **not** submitted: run 1's five packages and the span-3 composites |
+
+Raw logs are `.tar.gz` archives: they contain generated code such as `token = ...`, which the kit's
+secret scanner reports when it reads plain `.json`.
+
+**Results in one place.** Both runs produced 5 valid packages out of 5. On the submitted set the
+one-shot Haiku 5.5 juror solves one task 1 time in 3 and the other four 3 times in 3, so four of the
+five are still easy by that proxy. Pairwise similarity of the five is at most 0.11. The kit's
+`selfcheck.sh` (Harbor 0.26.0, Docker 29.9.3, images built from each package's own Dockerfile) reports
+oracle 1.0 and nop 0.0 for all five (`evidence/selfcheck/SUMMARY.txt`), and inside the built task image
+click's full suite is green (2434 passed, 0 failed). A second Linux machine reproduced the local gates
+and the oracle/nop results. No official resolve@k benchmark has been run. Total API spend was $23.76
+(run 1 $10.95, probe $1.80, submitted run $11.01).
 
 ## Setup
 
-Python 3.12, git and network access to GitHub and the Anthropic API.
+Python 3.12, git, and network access to GitHub and a model API.
 
 ```bash
 python -m venv .cache/venv            # or: uv venv .cache/venv --python 3.12
 .cache/venv/bin/pip install -r requirements.txt     # Windows: .cache\venv\Scripts\pip
-cp .env.example .env                  # then put the team ANTHROPIC_API_KEY in .env
+cp .env.example .env                  # then put OPENROUTER_API_KEY (the backend we ran) in .env
 ```
 
 ```bash
-.cache/venv/bin/python -m taskfactory prepare        # clone, snapshots, coverage map (~4 min, no model calls)
+.cache/venv/bin/python -m taskfactory prepare        # clone, snapshots, coverage map (about 1 min, no model calls)
 ```
 
 ## Run
@@ -23,6 +47,10 @@ cp .env.example .env                  # then put the team ANTHROPIC_API_KEY in .
 ```bash
 .cache/venv/bin/python -m taskfactory generate --n 5 --seed 1 --workers 5
 ```
+
+A fresh run of 5 tasks with the jury takes about 20 to 30 minutes and $10 to $20; `FACTORY_BUDGET_USD`
+(default 25) is a hard cap. A model writes the tasks, so a re-run produces different tasks of the same
+kind, not the same five.
 
 Outputs (default `../submission/`):
 
@@ -140,7 +168,8 @@ one-shot attempts on our single-feature tasks, which is the measurement that mot
   symbols their golds change, their regression slices and their spec terms. Single-feature set: max
   0.11, mean 0.04, no near-duplicates. Span-3 composites: max 0.69, mean 0.42, two near-duplicate pairs.
 - `FACTORY_OFFLINE=1` never calls a model: identical earlier calls are replayed from the response cache.
-  It is what the live demo uses.
+  A task whose first attempt needed a repair cannot be replayed, because the repair prompt embeds test
+  output that differs from run to run (timings, paths).
 
 Model: Claude Opus 5.5 at effort `high` with structured JSON output. Two interchangeable backends:
 OpenRouter (`OPENROUTER_API_KEY`, model `anthropic/claude-opus-5.5`) or the Anthropic API
@@ -177,6 +206,10 @@ the kind of reasoning they demand.
   edited by hand.
 - The benchmark model (Haiku 5.5) is used inside the pipeline as a difficulty juror, and was used once
   before that as a stand-alone probe ($1.80, logged under `probe/`).
+
+## Team contributions
+
+(To be filled in by the team before submitting: one line per member.)
 
 ## Limitations
 

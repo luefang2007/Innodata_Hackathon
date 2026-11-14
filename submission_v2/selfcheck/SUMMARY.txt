@@ -1,0 +1,33 @@
+# Harbor self-check (harness/selfcheck.sh): oracle and nop baselines, no model calls
+# harbor 0.26.0, docker 29.9.3, run 2026-11-14T18:38Z
+
+== pallets__click-0101-group-subcommand-lifecycle-hooks ==
+  oracle  reward=1.0   F2P=22/22 P2P=80/80
+  nop     reward=0.0   F2P=0/22 P2P=80/80
+  ✓ mechanically sound
+ALL SOUND
+
+== pallets__click-0102-help-effective-value-origin ==
+  oracle  reward=1.0   F2P=14/14 P2P=80/80
+  nop     reward=0.0   F2P=0/14 P2P=80/80
+  ✓ mechanically sound
+ALL SOUND
+
+== pallets__click-0103-line-completion-protocol ==
+  oracle  reward=1.0   F2P=38/38 P2P=19/19
+  nop     reward=0.0   F2P=0/38 P2P=19/19
+  ✓ mechanically sound
+ALL SOUND
+
+== pallets__click-0104-option-shorthand-expansions ==
+  oracle  reward=1.0   F2P=27/27 P2P=80/80
+  nop     reward=0.0   F2P=0/27 P2P=80/80
+  ✓ mechanically sound
+ALL SOUND
+
+== pallets__click-0105-numbered-choice-prompts ==
+  oracle  reward=1.0   F2P=16/16 P2P=80/80
+  nop     reward=0.0   F2P=0/16 P2P=80/80
+  ✓ mechanically sound
+ALL SOUND
+

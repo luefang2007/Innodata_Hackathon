@@ -128,7 +128,51 @@ call and every check report.
   and runs the kit validator. Raw logs go in as `.tar.gz`, because the kit's secret scanner flags
   generated code such as `token = ...` in plain `.json` logs.
 
-## Still to do
+## Frozen set (decided 13:30 ET) and what is left
+
+The submitted packages are `submission_v2/generated_tasks/` (5 tasks). Do not regenerate them.
+On Linux they pass the local gates and Harbor 0.26 oracle/nop (cloud session, `cloud_handoff/` on
+branch `claude/dreamy-allen-5qyhc4`), but that run used a `python:3.12-bookworm` base image.
+
+**Done at 13:38 ET on Lue's laptop (WSL, Harbor 0.26.0, Docker 29.9.3):** steps 1 and 2 below. The kit's
+`selfcheck.sh` reports oracle 1.0 / nop 0.0 for all five (`submission_v2/selfcheck/SUMMARY.txt`), with
+images built from the packages' own Dockerfiles, and click's full suite inside the task image is
+2434 passed, 0 failed, with `less` present. What is left is steps 3 to 5.
+
+On a Docker machine with normal network access:
+
+1. **Build and self-check.** This also proves the Dockerfile's `apt-get` line.
+
+   ```bash
+   python "Track 1 - Coding/harness/check_structure.py" submission_v2/generated_tasks/*
+   SELFCHECK_OUT=submission_v2/selfcheck "Track 1 - Coding/harness/selfcheck.sh" submission_v2/generated_tasks/*
+   ```
+
+2. **Base health inside the image** (expect a path for `less` and 0 failures):
+
+   ```bash
+   docker run --rm <task image> bash -c 'which less && cd /app && python -m pytest tests -q -p no:cacheprovider --color=no | tail -3'
+   ```
+
+3. **Benchmark** with the Anthropic key (k=3 per the guide; the kickoff slides say 5, so ask):
+
+   ```bash
+   harbor run -p submission_v2/generated_tasks/<instance_id> -a terminus-2 -m anthropic/claude-haiku-5-5 -k 3 -o bench/<instance_id> --no-delete -y
+   ```
+
+   Copy each run's `trajectory/<instance_id>/...` tree into `submission_v2/trajectory/`.
+
+4. **Package** (builds `dist/<TeamName>_Track1.zip` and runs the kit validator):
+
+   ```bash
+   cd factory
+   python -m taskfactory bundle --team <TeamName> --tasks ../submission_v2/generated_tasks --telemetry ../submission_v2/pipeline_run.json --extra ../submission/generated_tasks --extra ../submission/generated_tasks_composite
+   ```
+
+5. Fill in "Team contributions" in `factory/README.md`, and make the slides (max 5).
+   `INNOVATION.png` at the repo root is a ready-made figure of the pipeline and its measured results.
+
+## Still to do (older list)
 
 1. Put the key in `factory/.env` and run `generate`.
 2. Docker owner: run the Harbor self-check on `factory/smoke/` now, then on the generated tasks.

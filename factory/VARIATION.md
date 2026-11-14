@@ -37,17 +37,20 @@ a new seed produces a different, still non-overlapping plan.
 
 ## Batch produced for the submission
 
-Run `20261114T162521Z-s1` (seed 1, `anthropic/claude-opus-5.5` via OpenRouter). All 5 cells produced a
-valid package. F2P counts the feature tests, P2P the coverage-selected existing tests, and Mutants how
-many of 12 broken versions of the gold the feature tests caught.
+The submitted packages are the output of run `20261114T180829Z-s1` (seed 1, `anthropic/claude-opus-5.5`
+via OpenRouter, solver jury on). It replayed the design and implementation calls of run
+`20261114T162521Z-s1` from the response cache, measured every task with Haiku 5.5, and deepened once.
+All 5 cells produced a valid package. F2P counts the feature tests, P2P the coverage-selected existing
+tests, Mutants how many of 12 broken versions of the gold the feature tests caught, and Haiku how many
+of 3 one-shot attempts solved the shipped version.
 
-| Cell (area x shape) | Task | What the solver must get right | F2P | P2P | Mutants |
-|---|---|---|---|---|---|
-| core x lifecycle | `group-subcommand-lifecycle-hooks` | ordering of before/after hooks around nested and chained subcommands | 15 | 80 | 11/12 |
-| help x interaction | `help-effective-value-origin` | precedence of env var, prompt, `default_map` and default, plus help rendering and conflict with `show_default` | 14 | 80 | 12/12 |
-| completion x grammar | `line-completion-protocol` | tokenising a shell line from `COMP_LINE`/`COMP_POINT`, quoting and cursor position | 38 | 19 | 10/12 |
-| parser x api | `option-shorthand-expansions` | a declarative expansion API resolved inside the parser's token loop | 27 | 80 | 11/12 |
-| termui x output | `numbered-choice-prompts` | exact menu layout, numbering and input rules for `Choice` prompts | 16 | 80 | 9/12 |
+| Cell (area x shape) | Task | What the solver must get right | F2P | P2P | Mutants | Haiku |
+|---|---|---|---|---|---|---|
+| core x lifecycle | `group-subcommand-lifecycle-hooks` (deepened: state and re-entrancy) | before/after/teardown hooks: exact event order on success, on exceptions, in chain mode, when nested and when re-entered; `SkipSubcommand` | 22 | 80 | 10/12 | 1/3 |
+| help x interaction | `help-effective-value-origin` | precedence of env var, prompt, `default_map` and default, plus help rendering and conflict with `show_default` | 14 | 80 | 12/12 | 3/3 |
+| completion x grammar | `line-completion-protocol` | tokenising a shell line from `COMP_LINE`/`COMP_POINT`, quoting and cursor position | 38 | 19 | 11/12 | 3/3 |
+| parser x api | `option-shorthand-expansions` | a declarative expansion API resolved inside the parser's token loop | 27 | 80 | 11/12 | 3/3 |
+| termui x output | `numbered-choice-prompts` | exact menu layout, numbering and input rules for `Choice` prompts | 16 | 80 | 9/12 | 3/3 |
 
 The five tasks touch five different click subsystems and five different kinds of behaviour. No two
 share a primary module, and their regression slices come from the coverage of different code.
@@ -63,18 +66,19 @@ packages is the mean Jaccard overlap of the three sets (0 = nothing shared, 1 = 
 |---|---|---|---|---|
 | 0102 / 0104 | 0.07 | 0.21 | 0.05 | 0.11 |
 | 0102 / 0105 | 0.27 | 0.00 | 0.07 | 0.11 |
-| 0101 / 0102 | 0.07 | 0.08 | 0.05 | 0.07 |
-| 0101 / 0104 | 0.03 | 0.07 | 0.06 | 0.05 |
+| 0101 / 0102 | 0.06 | 0.08 | 0.04 | 0.06 |
+| 0101 / 0104 | 0.03 | 0.07 | 0.05 | 0.05 |
 | 0101 / 0103 | 0.00 | 0.12 | 0.00 | 0.04 |
-| 0101 / 0105 | 0.07 | 0.00 | 0.01 | 0.03 |
+| 0101 / 0105 | 0.06 | 0.00 | 0.01 | 0.02 |
 | 0104 / 0105 | 0.03 | 0.00 | 0.04 | 0.02 |
 | 0102 / 0103, 0103 / 0104, 0103 / 0105 | 0.00 | 0.00 | 0.01 | 0.00 |
 
 Across the ten pairs the maximum is 0.11 and the mean 0.04; no pair is near the 0.5 near-duplicate
-threshold. The full report is `evidence/diversity_single.md`.
+threshold. The full report is `evidence/submission_v2/diversity.md`.
 
 The same measurement is why the span-3 composites below are not our submitted set: they score a
-maximum of 0.69 and a mean of 0.42, with two near-duplicate pairs (`evidence/diversity_composite.md`).
+maximum of 0.69 and a mean of 0.42, with two near-duplicate pairs
+(`evidence/submission/diversity_composite.md`).
 
 ## Second axis of variation: span (difficulty as a dial)
 

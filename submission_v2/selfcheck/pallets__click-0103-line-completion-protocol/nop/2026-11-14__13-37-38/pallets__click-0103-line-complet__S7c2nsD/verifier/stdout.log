@@ -1,0 +1,311 @@
+============================= test session starts ==============================
+platform linux -- Python 3.12.16, pytest-8.4.2, pluggy-1.7.0
+rootdir: /app
+configfile: pyproject.toml
+collected 97 items
+
+tests/test_line_completion_protocol.py FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF [ 34%]
+FFFF.F                                                                   [ 40%]
+tests/test_shell_completion.py ......................................... [ 82%]
+.................                                                        [100%]
+
+=================================== FAILURES ===================================
+______________________ test_public_names_and_registration ______________________
+tests/test_line_completion_protocol.py:53: in test_public_names_and_registration
+    from click.shell_completion import CompletionRequestError
+E   ImportError: cannot import name 'CompletionRequestError' from 'click.shell_completion' (/app/src/click/shell_completion.py)
+__________ test_subcommands_completed_at_end_of_line_hidden_excluded ___________
+tests/test_line_completion_protocol.py:73: in test_subcommands_completed_at_end_of_line_hidden_excluded
+    assert result.exit_code == 0
+E   assert 1 == 0
+E    +  where 1 = <Result SystemExit(1)>.exit_code
+_______________ test_option_value_with_equals_prints_bare_value ________________
+tests/test_line_completion_protocol.py:80: in test_option_value_with_equals_prints_bare_value
+    assert result.exit_code == 0
+E   assert 1 == 0
+E    +  where 1 = <Result SystemExit(1)>.exit_code
+______________________ test_comp_point_truncates_line[7] _______________________
+tests/test_line_completion_protocol.py:87: in test_comp_point_truncates_line
+    assert result.exit_code == 0
+E   assert 1 == 0
+E    +  where 1 = <Result SystemExit(1)>.exit_code
+_____________________ test_comp_point_truncates_line[007] ______________________
+tests/test_line_completion_protocol.py:87: in test_comp_point_truncates_line
+    assert result.exit_code == 0
+E   assert 1 == 0
+E    +  where 1 = <Result SystemExit(1)>.exit_code
+______________ test_unset_or_empty_point_means_end_of_line[None] _______________
+tests/test_line_completion_protocol.py:94: in test_unset_or_empty_point_means_end_of_line
+    assert result.exit_code == 0
+E   assert 1 == 0
+E    +  where 1 = <Result SystemExit(1)>.exit_code
+________________ test_unset_or_empty_point_means_end_of_line[] _________________
+tests/test_line_completion_protocol.py:94: in test_unset_or_empty_point_means_end_of_line
+    assert result.exit_code == 0
+E   assert 1 == 0
+E    +  where 1 = <Result SystemExit(1)>.exit_code
+________________ test_unset_or_empty_point_means_end_of_line[7] ________________
+tests/test_line_completion_protocol.py:94: in test_unset_or_empty_point_means_end_of_line
+    assert result.exit_code == 0
+E   assert 1 == 0
+E    +  where 1 = <Result SystemExit(1)>.exit_code
+_______________ test_missing_comp_line_is_reported_before_point ________________
+tests/test_line_completion_protocol.py:102: in test_missing_comp_line_is_reported_before_point
+    assert result.stderr == "Error: COMP_LINE is not set.\n"
+E   AssertionError: assert '' == 'Error: COMP_...is not set.\n'
+E     
+E     - Error: COMP_LINE is not set.
+______________________ test_invalid_comp_point_value[-1] _______________________
+tests/test_line_completion_protocol.py:110: in test_invalid_comp_point_value
+    assert result.stderr == (
+E   AssertionError: assert '' == 'Error: Inval...ve integer.\n'
+E     
+E     - Error: Invalid COMP_POINT value '-1': expected a non-negative integer.
+______________________ test_invalid_comp_point_value[+3] _______________________
+tests/test_line_completion_protocol.py:110: in test_invalid_comp_point_value
+    assert result.stderr == (
+E   AssertionError: assert '' == 'Error: Inval...ve integer.\n'
+E     
+E     - Error: Invalid COMP_POINT value '+3': expected a non-negative integer.
+______________________ test_invalid_comp_point_value[ 3] _______________________
+tests/test_line_completion_protocol.py:110: in test_invalid_comp_point_value
+    assert result.stderr == (
+E   AssertionError: assert '' == 'Error: Inval...ve integer.\n'
+E     
+E     - Error: Invalid COMP_POINT value ' 3': expected a non-negative integer.
+______________________ test_invalid_comp_point_value[3 ] _______________________
+tests/test_line_completion_protocol.py:110: in test_invalid_comp_point_value
+    assert result.stderr == (
+E   AssertionError: assert '' == 'Error: Inval...ve integer.\n'
+E     
+E     - Error: Invalid COMP_POINT value '3 ': expected a non-negative integer.
+______________________ test_invalid_comp_point_value[1.0] ______________________
+tests/test_line_completion_protocol.py:110: in test_invalid_comp_point_value
+    assert result.stderr == (
+E   AssertionError: assert '' == 'Error: Inval...ve integer.\n'
+E     
+E     - Error: Invalid COMP_POINT value '1.0': expected a non-negative integer.
+______________________ test_invalid_comp_point_value[abc] ______________________
+tests/test_line_completion_protocol.py:110: in test_invalid_comp_point_value
+    assert result.stderr == (
+E   AssertionError: assert '' == 'Error: Inval...ve integer.\n'
+E     
+E     - Error: Invalid COMP_POINT value 'abc': expected a non-negative integer.
+______________________ test_invalid_comp_point_value[0x2] ______________________
+tests/test_line_completion_protocol.py:110: in test_invalid_comp_point_value
+    assert result.stderr == (
+E   AssertionError: assert '' == 'Error: Inval...ve integer.\n'
+E     
+E     - Error: Invalid COMP_POINT value '0x2': expected a non-negative integer.
+_ test_comp_point_past_end_of_line[tool st-12-COMP_POINT 12 is past the end of COMP_LINE (7 characters).] _
+tests/test_line_completion_protocol.py:128: in test_comp_point_past_end_of_line
+    assert result.stderr == f"Error: {message}\n"
+E   AssertionError: assert '' == 'Error: COMP_...haracters).\n'
+E     
+E     - Error: COMP_POINT 12 is past the end of COMP_LINE (7 characters).
+_ test_comp_point_past_end_of_line[t-0002-COMP_POINT 2 is past the end of COMP_LINE (1 character).] _
+tests/test_line_completion_protocol.py:128: in test_comp_point_past_end_of_line
+    assert result.stderr == f"Error: {message}\n"
+E   AssertionError: assert '' == 'Error: COMP_...character).\n'
+E     
+E     - Error: COMP_POINT 2 is past the end of COMP_LINE (1 character).
+_ test_comp_point_past_end_of_line[-1-COMP_POINT 1 is past the end of COMP_LINE (0 characters).] _
+tests/test_line_completion_protocol.py:128: in test_comp_point_past_end_of_line
+    assert result.stderr == f"Error: {message}\n"
+E   AssertionError: assert '' == 'Error: COMP_...haracters).\n'
+E     
+E     - Error: COMP_POINT 1 is past the end of COMP_LINE (0 characters).
+_________________ test_no_complete_words_prints_nothing[-None] _________________
+tests/test_line_completion_protocol.py:137: in test_no_complete_words_prints_nothing
+    assert result.exit_code == 0
+E   assert 1 == 0
+E    +  where 1 = <Result SystemExit(1)>.exit_code
+________________ test_no_complete_words_prints_nothing[  -None] ________________
+tests/test_line_completion_protocol.py:137: in test_no_complete_words_prints_nothing
+    assert result.exit_code == 0
+E   assert 1 == 0
+E    +  where 1 = <Result SystemExit(1)>.exit_code
+________________ test_no_complete_words_prints_nothing[to-None] ________________
+tests/test_line_completion_protocol.py:137: in test_no_complete_words_prints_nothing
+    assert result.exit_code == 0
+E   assert 1 == 0
+E    +  where 1 = <Result SystemExit(1)>.exit_code
+_______________ test_no_complete_words_prints_nothing[tool st-0] _______________
+tests/test_line_completion_protocol.py:137: in test_no_complete_words_prints_nothing
+    assert result.exit_code == 0
+E   assert 1 == 0
+E    +  where 1 = <Result SystemExit(1)>.exit_code
+_______________ test_no_complete_words_prints_nothing[tool st-2] _______________
+tests/test_line_completion_protocol.py:137: in test_no_complete_words_prints_nothing
+    assert result.exit_code == 0
+E   assert 1 == 0
+E    +  where 1 = <Result SystemExit(1)>.exit_code
+_______________________ test_program_word_is_not_checked _______________________
+tests/test_line_completion_protocol.py:144: in test_program_word_is_not_checked
+    assert result.exit_code == 0
+E   assert 1 == 0
+E    +  where 1 = <Result SystemExit(1)>.exit_code
+____________ test_tokenisation_of_incomplete_word[tool pa-got:pa\n] ____________
+tests/test_line_completion_protocol.py:162: in test_tokenisation_of_incomplete_word
+    assert result.exit_code == 0
+E   assert 1 == 0
+E    +  where 1 = <Result SystemExit(1)>.exit_code
+____________ test_tokenisation_of_incomplete_word[tool pa -got:\n] _____________
+tests/test_line_completion_protocol.py:162: in test_tokenisation_of_incomplete_word
+    assert result.exit_code == 0
+E   assert 1 == 0
+E    +  where 1 = <Result SystemExit(1)>.exit_code
+____________ test_tokenisation_of_incomplete_word[tool pa\t-got:\n] ____________
+tests/test_line_completion_protocol.py:162: in test_tokenisation_of_incomplete_word
+    assert result.exit_code == 0
+E   assert 1 == 0
+E    +  where 1 = <Result SystemExit(1)>.exit_code
+__________ test_tokenisation_of_incomplete_word[tool 'my -got:my \n] ___________
+tests/test_line_completion_protocol.py:162: in test_tokenisation_of_incomplete_word
+    assert result.exit_code == 0
+E   assert 1 == 0
+E    +  where 1 = <Result SystemExit(1)>.exit_code
+__________ test_tokenisation_of_incomplete_word[tool my\\ -got:my \n] __________
+tests/test_line_completion_protocol.py:162: in test_tokenisation_of_incomplete_word
+    assert result.exit_code == 0
+E   assert 1 == 0
+E    +  where 1 = <Result SystemExit(1)>.exit_code
+_____________ test_tokenisation_of_incomplete_word[tool ''-got:\n] _____________
+tests/test_line_completion_protocol.py:162: in test_tokenisation_of_incomplete_word
+    assert result.exit_code == 0
+E   assert 1 == 0
+E    +  where 1 = <Result SystemExit(1)>.exit_code
+__________ test_tokenisation_of_incomplete_word[tool "a b"-got:a b\n] __________
+tests/test_line_completion_protocol.py:162: in test_tokenisation_of_incomplete_word
+    assert result.exit_code == 0
+E   assert 1 == 0
+E    +  where 1 = <Result SystemExit(1)>.exit_code
+________________ test_output_keeps_only_single_line_plain_items ________________
+tests/test_line_completion_protocol.py:184: in test_output_keeps_only_single_line_plain_items
+    assert result.exit_code == 0
+E   assert 1 == 0
+E    +  where 1 = <Result SystemExit(1)>.exit_code
+___________________ test_path_completion_yields_empty_stdout ___________________
+tests/test_line_completion_protocol.py:190: in test_path_completion_yields_empty_stdout
+    assert result.exit_code == 0
+E   assert 1 == 0
+E    +  where 1 = <Result SystemExit(1)>.exit_code
+______________ test_option_names_hidden_repeated_and_double_dash _______________
+tests/test_line_completion_protocol.py:198: in test_option_names_hidden_repeated_and_double_dash
+    assert result.exit_code == 0
+E   assert 1 == 0
+E    +  where 1 = <Result SystemExit(1)>.exit_code
+_______________ test_chained_group_and_forwarded_context_kwargs ________________
+tests/test_line_completion_protocol.py:228: in test_chained_group_and_forwarded_context_kwargs
+    assert result.exit_code == 0
+E   assert 1 == 0
+E    +  where 1 = <Result SystemExit(1)>.exit_code
+_______________________ test_line_source_prints_template _______________________
+tests/test_line_completion_protocol.py:252: in test_line_source_prints_template
+    assert result.exit_code == 0
+E   assert 1 == 0
+E    +  where 1 = <Result SystemExit(1)>.exit_code
+__________________ test_request_error_from_custom_shell_class __________________
+tests/test_line_completion_protocol.py:282: in test_request_error_from_custom_shell_class
+    from click.shell_completion import CompletionRequestError
+E   ImportError: cannot import name 'CompletionRequestError' from 'click.shell_completion' (/app/src/click/shell_completion.py)
+==================================== PASSES ====================================
+=========================== short test summary info ============================
+PASSED tests/test_line_completion_protocol.py::test_unknown_line_instruction_exits_with_1
+PASSED tests/test_shell_completion.py::test_command
+PASSED tests/test_shell_completion.py::test_group
+PASSED tests/test_shell_completion.py::test_nested_group[args0--expect0]
+PASSED tests/test_shell_completion.py::test_nested_group[args1--expect1]
+PASSED tests/test_shell_completion.py::test_nested_group[args2--expect2]
+PASSED tests/test_shell_completion.py::test_nested_group[args3---expect3]
+PASSED tests/test_shell_completion.py::test_nested_group[args4--expect4]
+PASSED tests/test_shell_completion.py::test_nested_group[args5---expect5]
+PASSED tests/test_shell_completion.py::test_group_command_same_option
+PASSED tests/test_shell_completion.py::test_chained
+PASSED tests/test_shell_completion.py::test_help_option
+PASSED tests/test_shell_completion.py::test_argument_order
+PASSED tests/test_shell_completion.py::test_argument_default
+PASSED tests/test_shell_completion.py::test_type_choice
+PASSED tests/test_shell_completion.py::test_choice_special_characters
+PASSED tests/test_shell_completion.py::test_choice_conflicting_prefix
+PASSED tests/test_shell_completion.py::test_option_count
+PASSED tests/test_shell_completion.py::test_option_optional
+PASSED tests/test_shell_completion.py::test_path_types[type0-file]
+PASSED tests/test_shell_completion.py::test_path_types[type1-file]
+PASSED tests/test_shell_completion.py::test_path_types[type2-dir]
+PASSED tests/test_shell_completion.py::test_absolute_path
+PASSED tests/test_shell_completion.py::test_option_flag
+PASSED tests/test_shell_completion.py::test_flag_option_with_nargs_option
+PASSED tests/test_shell_completion.py::test_option_custom
+PASSED tests/test_shell_completion.py::test_option_multiple
+PASSED tests/test_shell_completion.py::test_option_nargs
+PASSED tests/test_shell_completion.py::test_argument_nargs
+PASSED tests/test_shell_completion.py::test_double_dash
+PASSED tests/test_shell_completion.py::test_hidden
+PASSED tests/test_shell_completion.py::test_add_different_name
+PASSED tests/test_shell_completion.py::test_completion_item_data
+PASSED tests/test_shell_completion.py::test_full_source[bash]
+PASSED tests/test_shell_completion.py::test_full_source[zsh]
+PASSED tests/test_shell_completion.py::test_full_source[fish]
+PASSED tests/test_shell_completion.py::test_full_source_powershell
+PASSED tests/test_shell_completion.py::test_full_complete[bash-env0-plain,a\nplain,b\n]
+PASSED tests/test_shell_completion.py::test_full_complete[bash-env1-plain,b\n]
+PASSED tests/test_shell_completion.py::test_full_complete[zsh-env2-plain\na\n_\nplain\nb\nbee\n]
+PASSED tests/test_shell_completion.py::test_full_complete[zsh-env3-plain\nb\nbee\n]
+PASSED tests/test_shell_completion.py::test_full_complete[fish-env4-plain,a\nplain,b\tbee\n]
+PASSED tests/test_shell_completion.py::test_full_complete[fish-env5-plain,b\tbee\n]
+PASSED tests/test_shell_completion.py::test_full_complete[fish-env6-plain,b\tbee\n]
+PASSED tests/test_shell_completion.py::test_full_complete[powershell-env7-plain\na\n_\nplain\nb\nbee\n]
+PASSED tests/test_shell_completion.py::test_full_complete[powershell-env8-plain\nb\nbee\n]
+PASSED tests/test_shell_completion.py::test_source_uses_lf_line_endings
+PASSED tests/test_shell_completion.py::test_zsh_full_complete_with_colons[env0-plain\na\n_\nplain\nb\nbee\nplain\nc\\:d\ncee:dee\nplain\nc:e\n_\n]
+PASSED tests/test_shell_completion.py::test_zsh_full_complete_with_colons[env1-plain\nc\\:d\ncee:dee\nplain\nc:e\n_\n]
+PASSED tests/test_shell_completion.py::test_zsh_full_complete_with_colons[env2-plain\nc\\:d\ncee:dee\nplain\nc:e\n_\n]
+PASSED tests/test_shell_completion.py::test_context_settings
+PASSED tests/test_shell_completion.py::test_choice_case_sensitive[False-expect0]
+PASSED tests/test_shell_completion.py::test_choice_case_sensitive[True-expect1]
+PASSED tests/test_shell_completion.py::test_add_completion_class
+PASSED tests/test_shell_completion.py::test_add_completion_class_with_name
+PASSED tests/test_shell_completion.py::test_add_completion_class_decorator
+PASSED tests/test_shell_completion.py::test_files_closed
+PASSED tests/test_shell_completion.py::test_fish_format_completion_escapes_help
+PASSED tests/test_shell_completion.py::test_powershell_format_completion_escapes_help
+FAILED tests/test_line_completion_protocol.py::test_public_names_and_registration
+FAILED tests/test_line_completion_protocol.py::test_subcommands_completed_at_end_of_line_hidden_excluded
+FAILED tests/test_line_completion_protocol.py::test_option_value_with_equals_prints_bare_value
+FAILED tests/test_line_completion_protocol.py::test_comp_point_truncates_line[7]
+FAILED tests/test_line_completion_protocol.py::test_comp_point_truncates_line[007]
+FAILED tests/test_line_completion_protocol.py::test_unset_or_empty_point_means_end_of_line[None]
+FAILED tests/test_line_completion_protocol.py::test_unset_or_empty_point_means_end_of_line[]
+FAILED tests/test_line_completion_protocol.py::test_unset_or_empty_point_means_end_of_line[7]
+FAILED tests/test_line_completion_protocol.py::test_missing_comp_line_is_reported_before_point
+FAILED tests/test_line_completion_protocol.py::test_invalid_comp_point_value[-1]
+FAILED tests/test_line_completion_protocol.py::test_invalid_comp_point_value[+3]
+FAILED tests/test_line_completion_protocol.py::test_invalid_comp_point_value[ 3]
+FAILED tests/test_line_completion_protocol.py::test_invalid_comp_point_value[3 ]
+FAILED tests/test_line_completion_protocol.py::test_invalid_comp_point_value[1.0]
+FAILED tests/test_line_completion_protocol.py::test_invalid_comp_point_value[abc]
+FAILED tests/test_line_completion_protocol.py::test_invalid_comp_point_value[0x2]
+FAILED tests/test_line_completion_protocol.py::test_comp_point_past_end_of_line[tool st-12-COMP_POINT 12 is past the end of COMP_LINE (7 characters).]
+FAILED tests/test_line_completion_protocol.py::test_comp_point_past_end_of_line[t-0002-COMP_POINT 2 is past the end of COMP_LINE (1 character).]
+FAILED tests/test_line_completion_protocol.py::test_comp_point_past_end_of_line[-1-COMP_POINT 1 is past the end of COMP_LINE (0 characters).]
+FAILED tests/test_line_completion_protocol.py::test_no_complete_words_prints_nothing[-None]
+FAILED tests/test_line_completion_protocol.py::test_no_complete_words_prints_nothing[  -None]
+FAILED tests/test_line_completion_protocol.py::test_no_complete_words_prints_nothing[to-None]
+FAILED tests/test_line_completion_protocol.py::test_no_complete_words_prints_nothing[tool st-0]
+FAILED tests/test_line_completion_protocol.py::test_no_complete_words_prints_nothing[tool st-2]
+FAILED tests/test_line_completion_protocol.py::test_program_word_is_not_checked
+FAILED tests/test_line_completion_protocol.py::test_tokenisation_of_incomplete_word[tool pa-got:pa\n]
+FAILED tests/test_line_completion_protocol.py::test_tokenisation_of_incomplete_word[tool pa -got:\n]
+FAILED tests/test_line_completion_protocol.py::test_tokenisation_of_incomplete_word[tool pa\t-got:\n]
+FAILED tests/test_line_completion_protocol.py::test_tokenisation_of_incomplete_word[tool 'my -got:my \n]
+FAILED tests/test_line_completion_protocol.py::test_tokenisation_of_incomplete_word[tool my\\ -got:my \n]
+FAILED tests/test_line_completion_protocol.py::test_tokenisation_of_incomplete_word[tool ''-got:\n]
+FAILED tests/test_line_completion_protocol.py::test_tokenisation_of_incomplete_word[tool "a b"-got:a b\n]
+FAILED tests/test_line_completion_protocol.py::test_output_keeps_only_single_line_plain_items
+FAILED tests/test_line_completion_protocol.py::test_path_completion_yields_empty_stdout
+FAILED tests/test_line_completion_protocol.py::test_option_names_hidden_repeated_and_double_dash
+FAILED tests/test_line_completion_protocol.py::test_chained_group_and_forwarded_context_kwargs
+FAILED tests/test_line_completion_protocol.py::test_line_source_prints_template
+FAILED tests/test_line_completion_protocol.py::test_request_error_from_custom_shell_class
+======================== 38 failed, 59 passed in 0.38s =========================

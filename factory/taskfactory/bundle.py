@@ -75,8 +75,9 @@ def build(team: str, tasks_dir: Path, telemetry: Path, out_root: Path, extras: l
     if (own / "trajectory").exists():                             # benchmark rollouts belong at top level
         _copy_tree(own / "trajectory", dest / "trajectory")
     for extra in extras:
+        extra = extra.resolve()
         (dest / "extras").mkdir(exist_ok=True)
-        with tarfile.open(dest / "extras" / f"{extra.name}.tar.gz", "w:gz") as tar:
+        with tarfile.open(dest / "extras" / f"{extra.parent.name}__{extra.name}.tar.gz", "w:gz") as tar:
             tar.add(extra, arcname=extra.name)
     for slides in sorted(config.ROOT.parent.glob("*Track1*.pptx")) + sorted(sub.glob("*.pptx")):
         shutil.copyfile(slides, dest / slides.name)
