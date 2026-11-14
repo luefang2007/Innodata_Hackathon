@@ -162,6 +162,51 @@ Return:
 - notes: one or two sentences on what you implemented."""
 
 
+def deepen(spec: str, prev: dict, probe: dict, test_path: str) -> str:
+    """Escalation: the measured solve rate of a weaker model was too high; make the task deeper."""
+    failed = probe.get("failed_f2p") or {}
+    if failed:
+        fail_note = ("\nFeature tests the weaker model failed at least once - keep and build on this kind of "
+                     "difficulty:\n" + "\n".join(f"- {t} ({n}x)" for t, n in list(failed.items())[:12]))
+    else:
+        fail_note = "\nIt did not fail a single feature test."
+    return f"""This task passed validation but is too easy: a smaller model that saw only instruction.md and the
+click source solved it in {probe['solved_strict']} of {probe['k']} one-shot attempts.{fail_note}
+
+Rework the task so that it is substantially harder to implement correctly, while staying fair and
+realistic. Keep the feature idea and its public names: make it deeper, not different.
+
+Add difficulty in all of these ways:
+1. Add 4-6 behaviour rules that only matter when the feature meets existing click behaviour or its own
+   other rules: precedence when two rules apply at once, interaction with value sources (command line,
+   environment variables, default_map, defaults, prompts), nested and chained commands with context
+   inheritance, resilient parsing and shell completion, the order of errors when several rules are
+   violated together, and corner cases of the existing functions you change that must keep working.
+2. Rewrite instruction.md declaratively. State observable outcomes, invariants and exact messages. Do not
+   describe your algorithm, the order of internal checks, or which internal function to modify; where an
+   order is observable, state it as an outcome ("when both A and B hold, the result is C"). Use compact
+   input -> output tables for combinations of rules. Keep at most two short examples.
+3. Tests: 14-22 tests. At least half must each depend on two or more rules at once and assert exact
+   output. Every expected value must follow from rules stated in instruction.md.
+4. The gold must change existing click code paths in at least two modules.
+
+Fairness is non-negotiable: a careful engineer must still be able to implement everything from
+instruction.md alone. Never rely on behaviour the text does not state.
+
+Current instruction.md:
+<<<SPEC
+{spec}
+SPEC>>>
+
+Current gold and tests (edits are relative to the ORIGINAL click source):
+<<<PREVIOUS
+{json.dumps(prev, indent=1)[:60000]}
+PREVIOUS>>>
+
+Return a complete new answer in the same format: all edits again against the original source, the full
+test file `{test_path}`, and the full revised instruction_md."""
+
+
 def repair(spec: str, prev: dict, failures: str, test_path: str) -> str:
     return f"""Your previous gold patch and tests for this task failed the automatic validation.
 

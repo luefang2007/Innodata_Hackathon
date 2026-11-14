@@ -13,6 +13,9 @@ Track 2 - Visual/
 Innodata Hackathon.pdf
 Presentation Template.pptx
 
+# generated submission folder and zip (rebuild with `python -m taskfactory bundle`)
+dist/
+
 # junk
 ~$*
 .DS_Store

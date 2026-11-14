@@ -64,6 +64,8 @@ def budget_state() -> tuple[float, float]:
 
 def _reserve(tag: str, amount: float | None = None) -> float:
     global _reserved
+    if config.OFFLINE:
+        raise BudgetExceeded(f"offline mode (FACTORY_OFFLINE): not calling a model for '{tag}'")
     amount = config.RESERVE_PER_CALL_USD if amount is None else amount
     with _budget_lock:
         if _spent + _reserved + amount > config.BUDGET_USD:
@@ -79,6 +81,35 @@ def _settle(cost: float, amount: float | None = None) -> None:
     with _budget_lock:
         _reserved = max(0.0, _reserved - amount)
         _spent += cost
+
+
+# ------------------------------------------------------------------------------------------------
+# prompt-cache gate. The provider's cached prefix includes the output schema, so calls with the same
+# schema share one cache entry - but only once the first of them has written it. Tasks start in
+# parallel; without a gate each one writes the ~160k-token prefix again (run 1 paid for 7 writes).
+# The first call per schema goes ahead; the others wait until it returns or CACHE_STAGGER_SEC passed.
+# ------------------------------------------------------------------------------------------------
+_gate_lock = threading.Lock()
+_gates: dict[str, dict] = {}
+
+
+def reset_cache_gates() -> None:
+    with _gate_lock:
+        _gates.clear()
+
+
+def _enter_cache_gate(schema: dict) -> threading.Event | None:
+    """Returns the Event to set when a leader call finishes, or None for a follower (after waiting)."""
+    key = json.dumps(schema, sort_keys=True)
+    with _gate_lock:
+        gate = _gates.get(key)
+        if gate is None:
+            gate = _gates[key] = {"start": time.time(), "done": threading.Event()}
+            return gate["done"]
+    remaining = gate["start"] + config.CACHE_STAGGER_SEC - time.time()
+    if remaining > 0:
+        gate["done"].wait(timeout=remaining)
+    return None
 
 
 # ------------------------------------------------------------------------------------------------
@@ -285,19 +316,55 @@ def call_json(system: list[dict], user_text: str, schema: dict, telemetry: Telem
                 "tag": tag, "reused_from_cache": True, "original_cost_usd": hit.get("cost_usd"),
                 "user_prompt": user_text, "response_text": hit["response_text"]}, indent=1), encoding="utf-8")
             return json.loads(hit["response_text"])
-    _reserve(tag)
-    t0 = time.time()
+    if config.OFFLINE:
+        raise BudgetExceeded(f"offline mode (FACTORY_OFFLINE): no cached response for '{tag}'")
+    leader_done = _enter_cache_gate(schema)
     try:
-        return _call_json_uncached(system, user_text, schema, telemetry, log_dir, tag, t0)
+        _reserve(tag)
+        t0 = time.time()
+        try:
+            return _call_json_uncached(system, user_text, schema, telemetry, log_dir, tag, t0)
+        finally:
+            _settle(telemetry.calls[-1]["cost_usd"] if telemetry.calls and telemetry.calls[-1]["tag"] == tag
+                    else 0.0)
     finally:
-        _settle(telemetry.calls[-1]["cost_usd"] if telemetry.calls and telemetry.calls[-1]["tag"] == tag else 0.0)
+        if leader_done is not None:
+            leader_done.set()
 
 
 def _call_with_model(system, user_text, schema, telemetry, log_dir, tag, model, effort, reserve) -> dict:
-    """Uncached call with a different model/effort (used by the difficulty probe; OpenRouter or Anthropic)."""
+    """Uncached call with a different model/effort (the solver jury). OpenRouter or the Anthropic SDK."""
     amount = _reserve(tag, reserve)
     cost = 0.0
+    model = config.backend_model(model or config.MODEL)
     try:
+        if config.BACKEND != "openrouter":
+            if "/" in model:
+                raise LLMError(f"model {model} needs the OpenRouter backend")
+            t0 = time.time()
+            try:
+                with client().messages.stream(
+                    model=model, max_tokens=config.MAX_OUTPUT_TOKENS, system=system,
+                    messages=[{"role": "user", "content": user_text}],
+                    output_config={"effort": effort or config.EFFORT,
+                                   "format": {"type": "json_schema", "schema": schema}},
+                ) as stream:
+                    msg = stream.get_final_message()
+            except anthropic.APIStatusError as exc:
+                raise LLMError(f"API error {exc.status_code}: {exc.message}") from exc
+            except anthropic.APIConnectionError as exc:
+                raise LLMError(f"connection error: {exc}") from exc
+            telemetry.add(tag, msg.usage, time.time() - t0)
+            cost = telemetry.calls[-1]["cost_usd"]
+            text = "".join(b.text for b in msg.content if b.type == "text")
+            log_dir.mkdir(parents=True, exist_ok=True)
+            (log_dir / f"{tag}.json").write_text(json.dumps({
+                "tag": tag, "backend": "anthropic", "model": msg.model, "stop_reason": msg.stop_reason,
+                "usage": msg.usage.to_dict(), "user_prompt": user_text, "response_text": text}, indent=1),
+                encoding="utf-8")
+            if msg.stop_reason in ("refusal", "max_tokens"):
+                raise LLMError(f"response stopped early ({msg.stop_reason})")
+            return json.loads(text)
         if config.BACKEND == "openrouter":
             t0 = time.time()
             body = _or_body(system, user_text, config.MAX_OUTPUT_TOKENS, model, effort)

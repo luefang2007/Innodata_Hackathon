@@ -77,6 +77,9 @@ gates      local, no Docker, ~30 s per candidate:
                              inputs or click's existing source
              novelty         the feature tests do not pass on live upstream main
 repair     on any failure the exact failure report goes back to Claude (max 3 attempts in total)
+jury       difficulty is measured before a task ships (see "Solver jury" below): the benchmark model
+           attempts the task k times; if it solves it too often the generator must deepen the task and
+           it is measured again (max 2 rounds). The hardest valid candidate is emitted.
 emit       Harbor package: task.toml, instruction.md, solution/, tests/, environment/Dockerfile
 compose    (optional, no model calls) span-k tasks: k validated features must land in one change.
            Merged spec, golds applied together, all feature tests, regression slice re-selected for
@@ -84,15 +87,59 @@ compose    (optional, no model calls) span-k tasks: k validated features must la
            code and cannot coexist are detected and the combination is dropped.
 ```
 
-Difficulty is a dial: span 1 is a single generated feature, span k asks for k of them at once. A
-cheap one-shot probe (`python -m taskfactory probe`, Haiku 5.5 via OpenRouter) showed span-1 tasks are
-too easy (14/15 one-shot solves), which is why the submitted set uses span 3.
+## Solver jury (difficulty measured inside the pipeline)
+
+A task factory with no difficulty signal only learns whether a task is hard after the benchmark has
+run. Ours measures it before the task ships, with the benchmark model as a juror (`taskfactory/jury.py`):
+
+- **Weak juror = Claude Haiku 5.5.** It sees only `instruction.md` and the click source (trimmed to the
+  files the feature touches plus core modules, about 85k tokens), writes its patch in one shot, and is
+  graded locally with the same rule as `tests/grade.py`. Three attempts give a solve rate.
+- **Decision.** Solve rate at most 1/3: the task ships. Otherwise the generator receives the result
+  (including the feature tests the juror failed) and must deepen the task: more rules that interact with
+  existing click behaviour, a declarative spec instead of a procedure, tests that need several rules at
+  once. The new candidate passes every validity gate again and is measured again, up to 2 rounds.
+- **Why 1/3.** The grader is all-or-nothing, so a single-attempt solve rate p gives
+  P(resolve@3 <= 1/3) = (1-p)^3 + 3p(1-p)^2: about 90% at p = 0.2 and 74% at p = 1/3.
+- **Regression traps.** Existing tests that a juror's plausible-but-wrong patch breaks (while they pass
+  at base and with the gold) are added to the regression slice.
+- **Failure fingerprint.** The feature tests the juror fails are recorded per task in the run summary.
+- **Safety.** The jury can only keep or improve a task: if a deepened candidate does not validate, or a
+  model call fails, the best valid candidate so far is emitted.
+- **Optional strong juror** (`FACTORY_JURY_STRONG=<model>`): one blind attempt by a strong model, recorded
+  as evidence that the spec alone is enough to solve the task.
+
+The jury is an adversarial filter that uses the benchmark model. We disclose that here on purpose.
+It is on by default (`FACTORY_JURY=0` turns it off) and costs a few cents per round on Haiku plus one
+generator call per deepening round.
+
+**Status.** Grading, context trimming, regression traps and the control flow were tested offline by
+replaying the 15 Haiku answers logged by the earlier probe. The deepening prompt has not been run
+against a live model yet, so the five packages in this submission were produced before the jury existed.
+
+The same juror is available stand-alone: `python -m taskfactory probe <packages>`. It solved 14 of 15
+one-shot attempts on our single-feature tasks, which is the measurement that motivated the jury.
+
+## Other difficulty and variation tools
+
+- `compose` (above) is a second difficulty dial: span k asks for k validated features in one change.
+  Measured on our data it costs variation (see below), so it is a tool, not the default.
+- `python -m taskfactory diversity <packages>` measures pairwise similarity of packages from the code
+  symbols their golds change, their regression slices and their spec terms. Single-feature set: max
+  0.11, mean 0.04, no near-duplicates. Span-3 composites: max 0.69, mean 0.42, two near-duplicate pairs.
+- `FACTORY_OFFLINE=1` never calls a model: identical earlier calls are replayed from the response cache.
+  It is what the live demo uses.
 
 Model: Claude Opus 5.5 at effort `high` with structured JSON output. Two interchangeable backends:
 OpenRouter (`OPENROUTER_API_KEY`, model `anthropic/claude-opus-5.5`) or the Anthropic API
 (`ANTHROPIC_API_KEY`, model `claude-opus-5-5`); `FACTORY_BACKEND` picks one explicitly. The whole click
-source (~110k tokens) sits in a cached system prompt shared by every call, so retries and parallel
-tasks read it from the cache.
+source (~160k tokens) sits in a cached system prompt shared by every call. The cached prefix includes
+the output schema, so the first call per schema runs ahead and the parallel ones wait for it (up to
+60 s) and then read the cache. Run 1 did not have this gate and paid for seven cache writes ($5.6 of
+$10.95); with it a batch should need two (not measured yet).
+
+Spend is capped per output directory (`FACTORY_BUDGET_USD`, default 25): the cap counts the calls logged
+under that directory's `runs/`, and a call only starts if its worst case still fits.
 
 API spend, live or after a run (OpenRouter also shows the key's total usage and limit):
 
@@ -108,18 +155,26 @@ behaviour* (input grammar, cross-feature interaction rules, lifecycle/state, exa
 extension API). A batch never repeats a row or a column, so the five tasks differ in capability and in
 the kind of reasoning they demand.
 
-## Reused components (disclosure)
+## Reused components and tools (disclosure)
 
 - `taskfactory/templates/test.sh`, `grade.py`, `parser.py`, `solve.sh` are copied unchanged from the
   organizers' worked example (`examples/toy__stringkit-0001-truncate`).
 - The Dockerfile and `run_script.sh` follow the same example's structure.
+- The pipeline code was written with an AI coding assistant (Claude Code). Task content (specs, golds,
+  tests) comes only from the pipeline's own model calls, which are logged under `runs/`; no package was
+  edited by hand.
+- The benchmark model (Haiku 5.5) is used inside the pipeline as a difficulty juror, and was used once
+  before that as a stand-alone probe ($1.80, logged under `probe/`).
 
 ## Limitations
 
 - Local gates run on the host OS; the container is Linux. Tests with OS-dependent markers are excluded from
   the regression slice, and the Harbor oracle/nop self-check is the final authority.
 - The fairness gate is lexical: it catches unstated wording, not unstated logic.
-- Composite difficulty is not measured yet: the probe ran on single features only, and the official
-  Haiku 5.5 benchmark needs Docker + Harbor. Composites drawn from five features necessarily share
-  features with each other.
+- The juror is a one-shot proxy for the official agent benchmark (terminus-2 can run tests and
+  iterate), so its solve rate needs calibrating against real resolve@k.
+- Composites drawn from five features share features with each other (measured: two near-duplicate
+  pairs), and by the probe's numbers three easy features at once are still likely to be solved.
+- The Anthropic-SDK backend follows the SDK documentation but only the OpenRouter backend was
+  exercised end to end.
 - Novelty is checked against upstream main and the commit log, not against open pull requests.

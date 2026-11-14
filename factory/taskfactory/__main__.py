@@ -35,6 +35,16 @@ def main(argv=None) -> int:
     pr.add_argument("--effort", default="high")
     pr.add_argument("--workers", type=int, default=8)
     pr.add_argument("--out", type=Path, default=config.ROOT.parent / "submission" / "probe")
+    b = sub.add_parser("bundle", help="assemble TeamName_Track1/ and the zip, then run the kit validator")
+    b.add_argument("--team", required=True)
+    b.add_argument("--tasks", type=Path, default=config.ROOT.parent / "submission" / "generated_tasks")
+    b.add_argument("--telemetry", type=Path, default=config.ROOT.parent / "submission" / "pipeline_run.json")
+    b.add_argument("--out", type=Path, default=config.ROOT.parent / "dist")
+    b.add_argument("--extra", type=Path, action="append", default=[],
+                   help="a second package set to archive under extras/ (not counted as submitted packages)")
+    dv = sub.add_parser("diversity", help="measured pairwise similarity of emitted packages (no model calls)")
+    dv.add_argument("tasks", nargs="+", type=Path)
+    dv.add_argument("--out", type=Path, default=None, help="write the report here (.md, plus .json)")
     u = sub.add_parser("usage", help="API tokens and estimated cost from the run logs (live)")
     u.add_argument("--runs", type=Path, default=config.ROOT.parent / "submission" / "runs")
     a = ap.parse_args(argv)
@@ -58,9 +68,22 @@ def main(argv=None) -> int:
         print(f"probe {s['run_id']}: {s['model']} ({s['mode']}, effort {s['effort']}), cost ${s['cost_usd']:.2f}, "
               f"{s['wall_seconds']:.0f}s")
         for name, t in s["tasks"].items():
-            rewards = [r.get("reward", "infra") for r in t["rollouts"]]
-            print(f"  {name:55s} resolved {t['resolve']}  rewards {rewards}")
+            print(f"  {name:60s} resolved {t['resolve']}  rewards {t['rewards']}  traps {t['n_traps']}")
         return 0
+    if a.cmd == "bundle":
+        from .bundle import build
+        build(a.team, a.tasks, a.telemetry, a.out, a.extra)
+        return 0
+    if a.cmd == "diversity":
+        from .diversity import report
+        from .pipeline import prepare
+        prepare()
+        md, data = report(a.tasks)
+        print(md)
+        if a.out:
+            a.out.write_text(md, encoding="utf-8")
+            a.out.with_suffix(".json").write_text(json.dumps(data, indent=1), encoding="utf-8")
+        return 0 if not data["too_similar"] else 1
     if a.cmd == "usage":
         from .usage import report
         print(report(a.runs))
