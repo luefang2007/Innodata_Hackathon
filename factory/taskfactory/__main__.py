@@ -35,6 +35,9 @@ def main(argv=None) -> int:
     pr.add_argument("--effort", default="high")
     pr.add_argument("--workers", type=int, default=8)
     pr.add_argument("--out", type=Path, default=config.ROOT.parent / "submission" / "probe")
+    rp = sub.add_parser("repackage", help="re-emit packages with the current environment templates "
+                                          "(spec, gold, tests and test lists are kept; no model calls)")
+    rp.add_argument("tasks", nargs="+", type=Path)
     b = sub.add_parser("bundle", help="assemble TeamName_Track1/ and the zip, then run the kit validator")
     b.add_argument("--team", required=True)
     b.add_argument("--tasks", type=Path, default=config.ROOT.parent / "submission" / "generated_tasks")
@@ -69,6 +72,16 @@ def main(argv=None) -> int:
               f"{s['wall_seconds']:.0f}s")
         for name, t in s["tasks"].items():
             print(f"  {name:60s} resolved {t['resolve']}  rewards {t['rewards']}  traps {t['n_traps']}")
+        return 0
+    if a.cmd == "repackage":
+        from . import package as pk
+        for d in a.tasks:
+            p = pk.load(d)
+            f2p = json.loads((d / "tests" / "fail_to_pass.json").read_text(encoding="utf-8"))
+            p2p = json.loads((d / "tests" / "pass_to_pass.json").read_text(encoding="utf-8"))
+            pk.emit(d.parent, d.name, p["spec"], p["gold_patch"], p["test_patch"],
+                    [p["test_path"], *p["extra_test_paths"]], f2p, p2p)
+            print(f"re-emitted {d.name}")
         return 0
     if a.cmd == "bundle":
         from .bundle import build

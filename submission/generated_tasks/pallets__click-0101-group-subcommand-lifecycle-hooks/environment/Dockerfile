@@ -3,7 +3,8 @@
 # solve.sh and the grader can `git apply` and no later upstream history is visible in /app.
 FROM python:3.12-slim-bookworm
 ENV PYTHONDONTWRITEBYTECODE=1 PIP_DISABLE_PIP_VERSION_CHECK=1 PIP_NO_CACHE_DIR=1 DEBIAN_FRONTEND=noninteractive
-RUN apt-get update && apt-get install -y --no-install-recommends git ca-certificates bash \
+# `less` is needed by click's own pager tests: without it 24 cases of the base suite fail in the image.
+RUN apt-get update && apt-get install -y --no-install-recommends git ca-certificates bash less \
     && rm -rf /var/lib/apt/lists/*
 WORKDIR /app
 RUN git init -q /app \

@@ -67,7 +67,7 @@ def _to_valid(impl: dict, spec: str, test_path: str, system: list[dict], tel: ll
 
 
 def _jury_rounds(valid: tuple, test_path: str, system: list[dict], tel: llm.Telemetry, jtel: llm.Telemetry,
-                 log_dir: Path, record: dict, tag: str) -> tuple:
+                 log_dir: Path, record: dict, tag: str, shape: str = "") -> tuple:
     """Measure difficulty with the weak juror and deepen the task while it is too easy.
 
     Returns the hardest valid (candidate, report, probe) seen. A valid task is never lost here: if
@@ -87,9 +87,11 @@ def _jury_rounds(valid: tuple, test_path: str, system: list[dict], tel: llm.Tele
             best = (cand, rep, probe)
         if probe["rate"] <= config.JURY_MAX_WEAK_RATE or rnd == config.JURY_MAX_ESCALATIONS:
             break
+        mech_name, mech_text = matrix.depth_for(shape, rnd + 1)
+        record["jury"][-1]["deepen_with"] = mech_name
         try:
-            impl = llm.call_json(system, prompts.deepen(spec, impl, probe, test_path), prompts.IMPL_SCHEMA,
-                                 tel, log_dir, f"deepen{rnd + 1}")
+            impl = llm.call_json(system, prompts.deepen(spec, impl, probe, test_path, mech_text),
+                                 prompts.IMPL_SCHEMA, tel, log_dir, f"deepen{rnd + 1}")
         except llm.LLMError as exc:
             record["jury_note"] = f"deepening stopped: {exc}"[:300]
             break
@@ -129,7 +131,7 @@ def make_task(cell: dict, number: int, siblings: list[str], system: list[dict], 
                 record["jury"] = []
                 try:
                     best_cand, best_rep, probe = _jury_rounds(valid, test_path, system, tel, jtel, log_dir,
-                                                              record, tag)
+                                                              record, tag, cell["shape"])
                     cand, rep = best_cand, best_rep
                     p2p = list(dict.fromkeys([*rep.p2p, *probe["traps"]]))
                     record["difficulty"] = {"weak_model": probe["model"], "weak_solved": probe["solved_strict"],

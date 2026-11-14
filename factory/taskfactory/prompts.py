@@ -162,8 +162,11 @@ Return:
 - notes: one or two sentences on what you implemented."""
 
 
-def deepen(spec: str, prev: dict, probe: dict, test_path: str) -> str:
+def deepen(spec: str, prev: dict, probe: dict, test_path: str, mechanism: str = "") -> str:
     """Escalation: the measured solve rate of a weaker model was too high; make the task deeper."""
+    depth = (f"\nWhere the difficulty must come from - {mechanism}\nAdding more independent rules is not "
+             f"enough: a solver that gets each rule right still passes. Build the rework around this "
+             f"mechanism.\n") if mechanism else ""
     failed = probe.get("failed_f2p") or {}
     if failed:
         fail_note = ("\nFeature tests the weaker model failed at least once - keep and build on this kind of "
@@ -175,8 +178,8 @@ click source solved it in {probe['solved_strict']} of {probe['k']} one-shot atte
 
 Rework the task so that it is substantially harder to implement correctly, while staying fair and
 realistic. Keep the feature idea and its public names: make it deeper, not different.
-
-Add difficulty in all of these ways:
+{depth}
+Also do all of these:
 1. Add 4-6 behaviour rules that only matter when the feature meets existing click behaviour or its own
    other rules: precedence when two rules apply at once, interaction with value sources (command line,
    environment variables, default_map, defaults, prompts), nested and chained commands with context
