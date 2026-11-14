@@ -1,0 +1,557 @@
+{
+ "run_id": "20261114T162521Z-s1",
+ "seed": 1,
+ "model": "anthropic/claude-opus-5.5",
+ "effort": "high",
+ "base_commit": "cf19179e8e2fd54c601378cec9e0d21bb12b6fb1",
+ "upstream_main": "e38188e9e205005d5af5f9e59df51904c984586a",
+ "requested": 5,
+ "valid": 5,
+ "wall_seconds": 992.5,
+ "prewarm": {
+  "model": "anthropic/claude-opus-5.5",
+  "model_calls": 1,
+  "n_input_tokens": 13,
+  "n_output_tokens": 4,
+  "n_cache_read_tokens": 0,
+  "n_cache_write_tokens": 159222,
+  "cost_usd": 0.796242,
+  "calls": [
+   {
+    "tag": "prewarm",
+    "input": 13,
+    "output": 4,
+    "cache_read": 0,
+    "cache_write": 159222,
+    "cost_usd": 0.7962,
+    "seconds": 5.9
+   }
+  ]
+ },
+ "tasks": [
+  {
+   "cell": {
+    "module": "core",
+    "shape": "lifecycle",
+    "area": "Context / Command / Group runtime: invocation order, callbacks, chained groups, context settings and parent/child propagation, parameter sources",
+    "files": [
+     "src/click/core.py"
+    ],
+    "shape_desc": "state and lifecycle behaviour: ordering of callbacks/hooks, context propagation between parent and child commands, chained/group invocation, cleanup"
+   },
+   "number": 101,
+   "status": "valid",
+   "attempts": 2,
+   "reports": [
+    {
+     "attempt": 1,
+     "ok": false,
+     "gates": {
+      "hygiene": true,
+      "grounding": true,
+      "gold_tests": true,
+      "feature_absent": true,
+      "regression": true,
+      "mutation": true,
+      "fairness": false,
+      "novelty": true
+     },
+     "n_f2p": 15,
+     "n_p2p": 80,
+     "mutation": {
+      "n": 12,
+      "killed": 11,
+      "kill_rate": 0.917,
+      "survivors": [
+       "src/click/core.py:1738: `_before_subcommand_hooks: list[t.Callable[[Context], t.Any]]` -> `pass`"
+      ]
+     },
+     "warnings": []
+    },
+    {
+     "attempt": 2,
+     "ok": true,
+     "gates": {
+      "hygiene": true,
+      "grounding": true,
+      "gold_tests": true,
+      "feature_absent": true,
+      "regression": true,
+      "mutation": true,
+      "fairness": true,
+      "novelty": true
+     },
+     "n_f2p": 15,
+     "n_p2p": 80,
+     "mutation": {
+      "n": 12,
+      "killed": 11,
+      "kill_rate": 0.917,
+      "survivors": [
+       "src/click/core.py:1738: `_before_subcommand_hooks: list[t.Callable[[Context], t.Any]]` -> `pass`"
+      ]
+     },
+     "warnings": []
+    }
+   ],
+   "instance_id": "pallets__click-0101-group-subcommand-lifecycle-hooks",
+   "title": "Add before/after subcommand lifecycle hooks to `Group`",
+   "capability": "A `Group` can register hooks that run immediately before and after each of its direct subcommands is invoked. Each hook receives the subcommand's `Context`, with deterministic ordering in normal and chained groups.",
+   "n_f2p": 15,
+   "n_p2p": 80,
+   "mutation": {
+    "n": 12,
+    "killed": 11,
+    "kill_rate": 0.917,
+    "survivors": [
+     "src/click/core.py:1738: `_before_subcommand_hooks: list[t.Callable[[Context], t.Any]]` -> `pass`"
+    ]
+   },
+   "wall_seconds": 485.9,
+   "telemetry": {
+    "model": "anthropic/claude-opus-5.5",
+    "model_calls": 3,
+    "n_input_tokens": 18202,
+    "n_output_tokens": 36509,
+    "n_cache_read_tokens": 319266,
+    "n_cache_write_tokens": 159724,
+    "cost_usd": 1.6654612000000002,
+    "calls": [
+     {
+      "tag": "design",
+      "input": 583,
+      "output": 11871,
+      "cache_read": 0,
+      "cache_write": 159724,
+      "cost_usd": 1.0384,
+      "seconds": 150.8
+     },
+     {
+      "tag": "implement",
+      "input": 5159,
+      "output": 15409,
+      "cache_read": 159633,
+      "cache_write": 0,
+      "cost_usd": 0.3607,
+      "seconds": 173.4
+     },
+     {
+      "tag": "repair1",
+      "input": 12460,
+      "output": 9229,
+      "cache_read": 159633,
+      "cache_write": 0,
+      "cost_usd": 0.2663,
+      "seconds": 96.7
+     }
+    ]
+   }
+  },
+  {
+   "cell": {
+    "module": "help",
+    "shape": "interaction",
+    "area": "help page generation and formatting (usage line, option and command records, sections, wrapping, HelpFormatter)",
+    "files": [
+     "src/click/formatting.py",
+     "src/click/core.py"
+    ],
+    "shape_desc": "a rule system that interacts with existing click features (value sources: command line, environment variables, default_map, defaults and prompts; multiple/nargs; required) with a precisely defined precedence and conflict policy"
+   },
+   "number": 102,
+   "status": "valid",
+   "attempts": 1,
+   "reports": [
+    {
+     "attempt": 1,
+     "ok": true,
+     "gates": {
+      "hygiene": true,
+      "grounding": true,
+      "gold_tests": true,
+      "feature_absent": true,
+      "regression": true,
+      "mutation": true,
+      "fairness": true,
+      "novelty": true
+     },
+     "n_f2p": 14,
+     "n_p2p": 80,
+     "mutation": {
+      "n": 12,
+      "killed": 12,
+      "kill_rate": 1.0,
+      "survivors": []
+     },
+     "warnings": []
+    }
+   ],
+   "instance_id": "pallets__click-0102-help-effective-value-origin",
+   "title": "Show each option's effective value and its origin in help pages",
+   "capability": "Help pages can show the value an option would take if it were omitted from the command line, together with where that value comes from (environment variable, default_map, parameter default, or a prompt), via a new `show_effective` setting on `Option` and `Context` and a new `Option.get_effective_value()` method.",
+   "n_f2p": 14,
+   "n_p2p": 80,
+   "mutation": {
+    "n": 12,
+    "killed": 12,
+    "kill_rate": 1.0,
+    "survivors": []
+   },
+   "wall_seconds": 348.7,
+   "telemetry": {
+    "model": "anthropic/claude-opus-5.5",
+    "model_calls": 2,
+    "n_input_tokens": 5950,
+    "n_output_tokens": 36560,
+    "n_cache_read_tokens": 159633,
+    "n_cache_write_tokens": 159724,
+    "cost_usd": 1.5855465999999998,
+    "calls": [
+     {
+      "tag": "design",
+      "input": 630,
+      "output": 15574,
+      "cache_read": 0,
+      "cache_write": 159724,
+      "cost_usd": 1.1126,
+      "seconds": 149.5
+     },
+     {
+      "tag": "implement",
+      "input": 5320,
+      "output": 20986,
+      "cache_read": 159633,
+      "cache_write": 0,
+      "cost_usd": 0.4729,
+      "seconds": 163.9
+     }
+    ]
+   }
+  },
+  {
+   "cell": {
+    "module": "completion",
+    "shape": "grammar",
+    "area": "shell completion: CompletionItem, completion sources, per-shell output formats and the completion environment protocol",
+    "files": [
+     "src/click/shell_completion.py"
+    ],
+    "shape_desc": "a new input grammar: parse and validate a structured textual value or token sequence, with precise acceptance/rejection rules, normalisation and exact error messages"
+   },
+   "number": 103,
+   "status": "valid",
+   "attempts": 2,
+   "reports": [
+    {
+     "attempt": 1,
+     "ok": false,
+     "gates": {
+      "hygiene": true,
+      "grounding": true,
+      "gold_tests": false,
+      "feature_absent": true,
+      "regression": true,
+      "fairness": true,
+      "novelty": true
+     },
+     "n_f2p": 26,
+     "n_p2p": 19,
+     "mutation": {},
+     "warnings": [
+      "1 new tests pass at base and are not graded"
+     ]
+    },
+    {
+     "attempt": 2,
+     "ok": true,
+     "gates": {
+      "hygiene": true,
+      "grounding": true,
+      "gold_tests": true,
+      "feature_absent": true,
+      "regression": true,
+      "mutation": true,
+      "fairness": true,
+      "novelty": true
+     },
+     "n_f2p": 38,
+     "n_p2p": 19,
+     "mutation": {
+      "n": 12,
+      "killed": 10,
+      "kill_rate": 0.833,
+      "survivors": [
+       "src/click/shell_completion.py:641: `return words[1:], incomplete` -> `return None`",
+       "src/click/shell_completion.py:65: `return 0` -> `return None`"
+      ]
+     },
+     "warnings": [
+      "1 new tests pass at base and are not graded"
+     ]
+    }
+   ],
+   "instance_id": "pallets__click-0103-line-completion-protocol",
+   "title": "Add a `line` shell completion protocol driven by `COMP_LINE` and `COMP_POINT`",
+   "capability": "Click can serve shell completion through Bash's `complete -C` protocol: it tokenises the raw `COMP_LINE` up to the `COMP_POINT` cursor, works out which word is being completed, prints one plain candidate per line, and reports malformed requests with exact error messages and exit status 1.",
+   "n_f2p": 38,
+   "n_p2p": 19,
+   "mutation": {
+    "n": 12,
+    "killed": 10,
+    "kill_rate": 0.833,
+    "survivors": [
+     "src/click/shell_completion.py:641: `return words[1:], incomplete` -> `return None`",
+     "src/click/shell_completion.py:65: `return 0` -> `return None`"
+    ]
+   },
+   "wall_seconds": 678.3,
+   "telemetry": {
+    "model": "anthropic/claude-opus-5.5",
+    "model_calls": 3,
+    "n_input_tokens": 20910,
+    "n_output_tokens": 51162,
+    "n_cache_read_tokens": 319266,
+    "n_cache_write_tokens": 159724,
+    "cost_usd": 1.9693532,
+    "calls": [
+     {
+      "tag": "design",
+      "input": 592,
+      "output": 23278,
+      "cache_read": 0,
+      "cache_write": 159724,
+      "cost_usd": 1.2665,
+      "seconds": 295.2
+     },
+     {
+      "tag": "implement",
+      "input": 5704,
+      "output": 18930,
+      "cache_read": 159633,
+      "cache_write": 0,
+      "cost_usd": 0.4333,
+      "seconds": 234.1
+     },
+     {
+      "tag": "repair1",
+      "input": 14614,
+      "output": 8954,
+      "cache_read": 159633,
+      "cache_write": 0,
+      "cost_usd": 0.2695,
+      "seconds": 107.1
+     }
+    ]
+   }
+  },
+  {
+   "cell": {
+    "module": "parser",
+    "shape": "api",
+    "area": "command-line tokenisation and option/argument parsing (how argv is split into options, values and arguments; prefixes, clustering, `--`, nargs)",
+    "files": [
+     "src/click/parser.py",
+     "src/click/core.py"
+    ],
+    "shape_desc": "a new public extension API: a class, decorator or hook third-party code can use, with documented contracts, validation of misuse and introspection (e.g. to_info_dict)"
+   },
+   "number": 104,
+   "status": "valid",
+   "attempts": 2,
+   "reports": [
+    {
+     "attempt": 1,
+     "ok": false,
+     "gates": {
+      "hygiene": true,
+      "grounding": true,
+      "gold_tests": true,
+      "feature_absent": true,
+      "regression": true,
+      "mutation": true,
+      "fairness": false,
+      "novelty": true
+     },
+     "n_f2p": 27,
+     "n_p2p": 80,
+     "mutation": {
+      "n": 12,
+      "killed": 11,
+      "kill_rate": 0.917,
+      "survivors": [
+       "src/click/parser.py:133: `__slots__ = ()` -> `pass`"
+      ]
+     },
+     "warnings": []
+    },
+    {
+     "attempt": 2,
+     "ok": true,
+     "gates": {
+      "hygiene": true,
+      "grounding": true,
+      "gold_tests": true,
+      "feature_absent": true,
+      "regression": true,
+      "mutation": true,
+      "fairness": true,
+      "novelty": true
+     },
+     "n_f2p": 27,
+     "n_p2p": 80,
+     "mutation": {
+      "n": 12,
+      "killed": 11,
+      "kill_rate": 0.917,
+      "survivors": [
+       "src/click/parser.py:133: `__slots__ = ()` -> `pass`"
+      ]
+     },
+     "warnings": []
+    }
+   ],
+   "instance_id": "pallets__click-0104-option-shorthand-expansions",
+   "title": "Option shorthands: declarative token expansions resolved by the parser",
+   "capability": "Commands can declare shorthand tokens (for example `-q`) that the option parser replaces in place by a fixed sequence of tokens (for example `--log-level error --no-color`). Shorthands are validated, shown in help, reserve help-option names and are reported by `to_info_dict`.",
+   "n_f2p": 27,
+   "n_p2p": 80,
+   "mutation": {
+    "n": 12,
+    "killed": 11,
+    "kill_rate": 0.917,
+    "survivors": [
+     "src/click/parser.py:133: `__slots__ = ()` -> `pass`"
+    ]
+   },
+   "wall_seconds": 985.9,
+   "telemetry": {
+    "model": "anthropic/claude-opus-5.5",
+    "model_calls": 3,
+    "n_input_tokens": 26536,
+    "n_output_tokens": 87016,
+    "n_cache_read_tokens": 319266,
+    "n_cache_write_tokens": 159724,
+    "cost_usd": 2.7089372,
+    "calls": [
+     {
+      "tag": "design",
+      "input": 635,
+      "output": 24216,
+      "cache_read": 0,
+      "cache_write": 159724,
+      "cost_usd": 1.2855,
+      "seconds": 229.3
+     },
+     {
+      "tag": "implement",
+      "input": 6470,
+      "output": 42746,
+      "cache_read": 159633,
+      "cache_write": 0,
+      "cost_usd": 0.9127,
+      "seconds": 482.0
+     },
+     {
+      "tag": "repair1",
+      "input": 19431,
+      "output": 20054,
+      "cache_read": 159633,
+      "cache_write": 0,
+      "cost_usd": 0.5107,
+      "seconds": 208.5
+     }
+    ]
+   }
+  },
+  {
+   "cell": {
+    "module": "termui",
+    "shape": "output",
+    "area": "interactive terminal features (prompt, confirm, choice prompts, progress) and the CliRunner test harness",
+    "files": [
+     "src/click/termui.py",
+     "src/click/testing.py"
+    ],
+    "shape_desc": "an exact output format: deterministic rendering (help text, listings, reports, completion payloads) with precise layout, ordering, wrapping and escaping rules"
+   },
+   "number": 105,
+   "status": "valid",
+   "attempts": 1,
+   "reports": [
+    {
+     "attempt": 1,
+     "ok": true,
+     "gates": {
+      "hygiene": true,
+      "grounding": true,
+      "gold_tests": true,
+      "feature_absent": true,
+      "regression": true,
+      "mutation": true,
+      "fairness": true,
+      "novelty": true
+     },
+     "n_f2p": 16,
+     "n_p2p": 80,
+     "mutation": {
+      "n": 12,
+      "killed": 9,
+      "kill_rate": 0.75,
+      "survivors": [
+       "src/click/termui.py:207: `numbered: bool = False,` -> `numbered: bool = True,`",
+       "src/click/termui.py:309: `if show_default and not isinstance(show_default, str) and default is not None:` -> `if show_default or not isinstance(show_default, str) and default is not None:`",
+       "src/click/termui.py:149: `return index` -> `return None`"
+      ]
+     },
+     "warnings": []
+    }
+   ],
+   "instance_id": "pallets__click-0105-numbered-choice-prompts",
+   "title": "Numbered menus for Choice prompts",
+   "capability": "`click.prompt()` and prompting options with a `click.Choice` type can render a numbered menu of the choices and accept either the menu number or the choice name as input.",
+   "n_f2p": 16,
+   "n_p2p": 80,
+   "mutation": {
+    "n": 12,
+    "killed": 9,
+    "kill_rate": 0.75,
+    "survivors": [
+     "src/click/termui.py:207: `numbered: bool = False,` -> `numbered: bool = True,`",
+     "src/click/termui.py:309: `if show_default and not isinstance(show_default, str) and default is not None:` -> `if show_default or not isinstance(show_default, str) and default is not None:`",
+     "src/click/termui.py:149: `return index` -> `return None`"
+    ]
+   },
+   "wall_seconds": 299.8,
+   "telemetry": {
+    "model": "anthropic/claude-opus-5.5",
+    "model_calls": 2,
+    "n_input_tokens": 6122,
+    "n_output_tokens": 30111,
+    "n_cache_read_tokens": 0,
+    "n_cache_write_tokens": 319357,
+    "cost_usd": 2.223493,
+    "calls": [
+     {
+      "tag": "design",
+      "input": 630,
+      "output": 12259,
+      "cache_read": 0,
+      "cache_write": 159724,
+      "cost_usd": 1.0463,
+      "seconds": 116.1
+     },
+     {
+      "tag": "implement",
+      "input": 5492,
+      "output": 17852,
+      "cache_read": 0,
+      "cache_write": 159633,
+      "cost_usd": 1.1772,
+      "seconds": 145.7
+     }
+    ]
+   }
+  }
+ ],
+ "first_pass_yield": 1.0
+}

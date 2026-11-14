@@ -1,0 +1,61 @@
+{
+ "pipeline": "click-task-factory/0.1",
+ "tasks": [
+  {
+   "instance_id": "pallets__click-0101-group-subcommand-lifecycle-hooks",
+   "model": "anthropic/claude-opus-5.5",
+   "wall_seconds": 485.9,
+   "model_calls": 3,
+   "attempts": 2,
+   "n_input_tokens": 497192,
+   "n_output_tokens": 36509,
+   "n_cache_tokens": 319266,
+   "cost_usd": 1.8247
+  },
+  {
+   "instance_id": "pallets__click-0102-help-effective-value-origin",
+   "model": "anthropic/claude-opus-5.5",
+   "wall_seconds": 348.7,
+   "model_calls": 2,
+   "attempts": 1,
+   "n_input_tokens": 325307,
+   "n_output_tokens": 36560,
+   "n_cache_tokens": 159633,
+   "cost_usd": 1.7448
+  },
+  {
+   "instance_id": "pallets__click-0103-line-completion-protocol",
+   "model": "anthropic/claude-opus-5.5",
+   "wall_seconds": 678.3,
+   "model_calls": 3,
+   "attempts": 2,
+   "n_input_tokens": 499900,
+   "n_output_tokens": 51162,
+   "n_cache_tokens": 319266,
+   "cost_usd": 2.1286
+  },
+  {
+   "instance_id": "pallets__click-0104-option-shorthand-expansions",
+   "model": "anthropic/claude-opus-5.5",
+   "wall_seconds": 985.9,
+   "model_calls": 3,
+   "attempts": 2,
+   "n_input_tokens": 505526,
+   "n_output_tokens": 87016,
+   "n_cache_tokens": 319266,
+   "cost_usd": 2.8682
+  },
+  {
+   "instance_id": "pallets__click-0105-numbered-choice-prompts",
+   "model": "anthropic/claude-opus-5.5",
+   "wall_seconds": 299.8,
+   "model_calls": 2,
+   "attempts": 1,
+   "n_input_tokens": 325479,
+   "n_output_tokens": 30111,
+   "n_cache_tokens": 0,
+   "cost_usd": 2.3827
+  }
+ ],
+ "discarded_candidates": []
+}

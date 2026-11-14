@@ -1,0 +1,3 @@
+[fairness] FAILED
+asserted text "DeprecationWarning: The option 'old' is deprecated.\n" uses words not found in instruction.md: ["old'"]
+asserted text 'Usage: tool [OPTIONS] COMMAND [ARGS]...\n\nOptions:\n  --profile TEXT  Profile name.\n  --help          Show this message an' uses words not found in instruction.md: ["env'"]
