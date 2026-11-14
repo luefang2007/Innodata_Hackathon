@@ -57,15 +57,23 @@ def build(team: str, tasks_dir: Path, telemetry: Path, out_root: Path, extras: l
     shutil.copyfile(telemetry, dest / "pipeline_run.json")
     for name in ("README.md", "VARIATION.md"):                    # also at top level, where reviewers look first
         shutil.copyfile(config.ROOT / name, dest / name)
-    runs = _tar_dirs(sub / "runs", dest / "evidence" / "runs")
-    probes = _tar_dirs(sub / "probe", dest / "evidence" / "probe")
-    for report in sorted(sub.glob("*.md")):
-        shutil.copyfile(report, dest / "evidence" / report.name)
+    # Evidence comes from the folder the packages were generated into and, when that is a later run that
+    # reused earlier paid-for calls, from the first run's folder too.
+    own = tasks_dir.resolve().parent
+    roots = list(dict.fromkeys([own, sub.resolve()]))
+    runs = probes = 0
+    for root in roots:
+        label = root.name
+        runs += _tar_dirs(root / "runs", dest / "evidence" / label / "runs")
+        probes += _tar_dirs(root / "probe", dest / "evidence" / label / "probe")
+        for report in sorted(root.glob("*.md")):
+            (dest / "evidence" / label).mkdir(parents=True, exist_ok=True)
+            shutil.copyfile(report, dest / "evidence" / label / report.name)
     for name in ("selfcheck", "sc"):                              # Harbor oracle/nop output, if it was produced
-        if (sub / name).exists():
-            _copy_tree(sub / name, dest / "evidence" / "selfcheck")
-    if (sub / "trajectory").exists():                             # benchmark rollouts belong at top level
-        _copy_tree(sub / "trajectory", dest / "trajectory")
+        if (own / name).exists():
+            _copy_tree(own / name, dest / "evidence" / "selfcheck")
+    if (own / "trajectory").exists():                             # benchmark rollouts belong at top level
+        _copy_tree(own / "trajectory", dest / "trajectory")
     for extra in extras:
         (dest / "extras").mkdir(exist_ok=True)
         with tarfile.open(dest / "extras" / f"{extra.name}.tar.gz", "w:gz") as tar:

@@ -1,0 +1,380 @@
+diff --git a/tests/test_help_effective_value_origin.py b/tests/test_help_effective_value_origin.py
+new file mode 100644
+index 0000000..492be76
+--- /dev/null
++++ b/tests/test_help_effective_value_origin.py
+@@ -0,0 +1,374 @@
++import enum
++
++import click
++from click import ParameterSource
++
++
++def test_help_shows_effective_value_from_default_and_env(runner):
++    @click.command(context_settings={"show_effective": True})
++    @click.option("--port", default=8000, envvar="APP_PORT", help="Port to bind.")
++    @click.option("--host", help="Host name.")
++    @click.option("--tag", multiple=True, default=["a", "b"], help="Tags.")
++    def serve(port, host, tag):
++        pass
++
++    result = runner.invoke(
++        serve, ["--help"], env={"APP_PORT": None}, terminal_width=80
++    )
++    assert result.exit_code == 0
++    assert result.output == (
++        "Usage: serve [OPTIONS]\n"
++        "\n"
++        "Options:\n"
++        "  --port INTEGER  Port to bind.  [current: 8000 (default)]\n"
++        "  --host TEXT     Host name.\n"
++        "  --tag TEXT      Tags.  [current: a, b (default)]\n"
++        "  --help          Show this message and exit.\n"
++    )
++
++    result = runner.invoke(
++        serve, ["--help"], env={"APP_PORT": "9000"}, terminal_width=80
++    )
++    assert result.exit_code == 0
++    assert result.output.splitlines()[3] == (
++        "  --port INTEGER  Port to bind.  [current: 9000 (env var APP_PORT)]"
++    )
++
++
++def test_default_map_prompt_and_hidden_input_in_help(runner):
++    @click.command(context_settings={"show_effective": True, "show_default": True})
++    @click.option("--level", default="info")
++    @click.option("--user", prompt=True)
++    @click.option("--token", envvar="TOKEN", hide_input=True)
++    def cli(level, user, token):
++        pass
++
++    result = runner.invoke(
++        cli,
++        ["--help"],
++        env={"TOKEN": "secret"},
++        default_map={"level": "debug"},
++        terminal_width=80,
++    )
++    assert result.exit_code == 0
++    assert result.output == (
++        "Usage: cli [OPTIONS]\n"
++        "\n"
++        "Options:\n"
++        "  --level TEXT  [current: debug (default map)]\n"
++        "  --user TEXT   [current: (prompt)]\n"
++        "  --token TEXT  [current: *** (env var TOKEN)]\n"
++        "  --help        Show this message and exit.\n"
++    )
++
++
++def test_subcommand_inherits_setting_and_uses_auto_envvar(runner):
++    @click.group(
++        context_settings={"show_effective": True, "auto_envvar_prefix": "APP"}
++    )
++    def cli():
++        pass
++
++    @cli.command()
++    @click.option("--verbose/--quiet", default=False)
++    @click.option("--count", type=int, default=3, show_effective=False)
++    def run(verbose, count):
++        pass
++
++    result = runner.invoke(
++        cli,
++        ["run", "--help"],
++        env={"APP_RUN_VERBOSE": "1", "APP_RUN_COUNT": None},
++        terminal_width=80,
++    )
++    assert result.exit_code == 0
++    assert result.output == (
++        "Usage: cli run [OPTIONS]\n"
++        "\n"
++        "Options:\n"
++        "  --verbose / --quiet  [current: 1 (env var APP_RUN_VERBOSE)]\n"
++        "  --count INTEGER\n"
++        "  --help               Show this message and exit.\n"
++    )
++
++    result = runner.invoke(
++        cli,
++        ["run", "--help"],
++        env={"APP_RUN_VERBOSE": None, "APP_RUN_COUNT": None},
++        terminal_width=80,
++    )
++    assert result.exit_code == 0
++    assert result.output.splitlines()[3] == (
++        "  --verbose / --quiet  [current: quiet (default)]"
++    )
++
++
++def test_group_default_map_entry_applies_and_callables_not_called(runner):
++    calls = []
++
++    def boom():
++        calls.append(1)
++        raise RuntimeError("called")
++
++    @click.group(context_settings={"show_effective": True})
++    def cli():
++        pass
++
++    @cli.command()
++    @click.option("--level", default="info")
++    @click.option("--mode", default="fast")
++    def run(level, mode):
++        pass
++
++    result = runner.invoke(
++        cli,
++        ["run", "--help"],
++        default_map={"run": {"level": "debug", "mode": boom}},
++        terminal_width=80,
++    )
++    assert result.exit_code == 0
++    assert result.output == (
++        "Usage: cli run [OPTIONS]\n"
++        "\n"
++        "Options:\n"
++        "  --level TEXT  [current: debug (default map)]\n"
++        "  --mode TEXT   [current: (dynamic) (default map)]\n"
++        "  --help        Show this message and exit.\n"
++    )
++    assert calls == []
++
++
++def test_env_var_outranks_prompt_default_map_and_default(monkeypatch):
++    monkeypatch.setenv("CLICK_EFF_ONE", "")
++    monkeypatch.setenv("CLICK_EFF_TWO", "two")
++    cmd = click.Command("cli")
++    opt = click.Option(
++        ["--name"],
++        envvar=["CLICK_EFF_ONE", "CLICK_EFF_TWO"],
++        default="d",
++        prompt=True,
++    )
++    ctx = click.Context(cmd, default_map={"name": "m"}, show_effective=True)
++    assert opt.get_effective_value(ctx) == ("two", ParameterSource.ENVIRONMENT)
++    assert opt.get_help_extra(ctx) == {"current": "two (env var CLICK_EFF_TWO)"}
++
++    monkeypatch.delenv("CLICK_EFF_TWO")
++    assert opt.get_effective_value(ctx) == (None, ParameterSource.PROMPT)
++    assert opt.get_help_extra(ctx) == {"current": "(prompt)"}
++
++    no_prompt = click.Option(
++        ["--name"], envvar=["CLICK_EFF_ONE", "CLICK_EFF_TWO"], default="d"
++    )
++    assert no_prompt.get_effective_value(ctx) == ("m", ParameterSource.DEFAULT_MAP)
++    assert no_prompt.get_effective_value(click.Context(cmd)) == (
++        "d",
++        ParameterSource.DEFAULT,
++    )
++
++
++def test_prompt_required_false_skips_prompt_step():
++    cmd = click.Command("cli")
++    opt = click.Option(["--name"], prompt=True, prompt_required=False, default="x")
++    assert opt.get_effective_value(click.Context(cmd)) == (
++        "x",
++        ParameterSource.DEFAULT,
++    )
++    ctx = click.Context(cmd, default_map={"name": "y"})
++    assert opt.get_effective_value(ctx) == ("y", ParameterSource.DEFAULT_MAP)
++
++    required = click.Option(
++        ["--name"], prompt=True, prompt_required=False, required=True
++    )
++    assert required.get_effective_value(ctx) == (None, ParameterSource.PROMPT)
++
++
++def test_auto_envvar_respects_allow_from_autoenv_and_is_raw(monkeypatch):
++    monkeypatch.setenv("CLICK_EFF_NAME", "auto")
++    monkeypatch.setenv("CLICK_EFF_PAIR", "a b")
++    cmd = click.Command("cli")
++    ctx = click.Context(cmd, auto_envvar_prefix="click_eff", show_effective=True)
++
++    allowed = click.Option(["--name"], default="d")
++    assert allowed.get_effective_value(ctx) == ("auto", ParameterSource.ENVIRONMENT)
++    assert allowed.get_help_extra(ctx) == {"current": "auto (env var CLICK_EFF_NAME)"}
++
++    denied = click.Option(["--name"], default="d", allow_from_autoenv=False)
++    assert denied.get_effective_value(ctx) == ("d", ParameterSource.DEFAULT)
++
++    pair = click.Option(["--pair"], nargs=2, envvar="CLICK_EFF_PAIR")
++    assert pair.get_effective_value(ctx) == ("a b", ParameterSource.ENVIRONMENT)
++    assert pair.get_help_extra(ctx) == {"current": "a b (env var CLICK_EFF_PAIR)"}
++
++
++def test_effective_value_defaults_and_unset():
++    cmd = click.Command("cli")
++    ctx = click.Context(cmd)
++
++    def factory():
++        raise RuntimeError("called")
++
++    assert click.Option(["--x"]).get_effective_value(ctx) is None
++    assert click.Option(["--x"], default=None).get_effective_value(ctx) == (
++        None,
++        ParameterSource.DEFAULT,
++    )
++    assert click.Option(["--v"], is_flag=True).get_effective_value(ctx) == (
++        False,
++        ParameterSource.DEFAULT,
++    )
++    multi_flag = click.Option(["--f"], is_flag=True, flag_value="x", multiple=True)
++    assert multi_flag.get_effective_value(ctx) == ((), ParameterSource.DEFAULT)
++    value, source = click.Option(["--c"], default=factory).get_effective_value(ctx)
++    assert value is factory
++    assert source is ParameterSource.DEFAULT
++
++
++def test_value_rendering_rules():
++    class Color(enum.Enum):
++        RED = "r"
++
++    def factory():
++        return "x"
++
++    cmd = click.Command("cli")
++    ctx = click.Context(cmd, show_effective=True)
++
++    assert click.Option(["--f"], default=factory).get_help_extra(ctx) == {
++        "current": "(dynamic) (default)"
++    }
++    assert click.Option(
++        ["--c"], type=click.Choice(Color), default=Color.RED
++    ).get_help_extra(ctx) == {"current": "RED (default)"}
++    assert click.Option(
++        ["--pt"], nargs=2, multiple=True, type=int, default=[(1, 2), (3, 4)]
++    ).get_help_extra(ctx) == {"current": "1 2, 3 4 (default)"}
++    assert click.Option(["--e"], default="").get_help_extra(ctx) == {
++        "current": '"" (default)'
++    }
++    assert click.Option(["--pw"], default="pw", hide_input=True).get_help_extra(
++        ctx
++    ) == {"current": "*** (default)"}
++    color = click.Option(["--color/--no-color"], default=True)
++    assert color.get_help_extra(ctx) == {"current": "color (default)"}
++    map_ctx = click.Context(cmd, show_effective=True, default_map={"color": False})
++    assert color.get_help_extra(map_ctx) == {"current": "no-color (default map)"}
++
++
++def test_omitted_when_no_value_or_false_flag():
++    cmd = click.Command("cli")
++    ctx = click.Context(cmd, show_effective=True)
++
++    assert click.Option(["--x"]).get_help_extra(ctx) == {}
++    assert click.Option(["--x"], default=None).get_help_extra(ctx) == {}
++    assert click.Option(["--t"], multiple=True, default=[]).get_help_extra(ctx) == {}
++    assert click.Option(["--v"], is_flag=True).get_help_extra(ctx) == {}
++    assert cmd.get_help_option(ctx).get_help_extra(ctx) == {}
++    assert click.Option(["--on"], is_flag=True, default=True).get_help_extra(
++        ctx
++    ) == {"current": "True (default)"}
++
++    map_ctx = click.Context(
++        cmd, show_effective=True, default_map={"v": False, "name": None}
++    )
++    assert click.Option(["--v"], is_flag=True).get_help_extra(map_ctx) == {
++        "current": "False (default map)"
++    }
++    name = click.Option(["--name"], default="d")
++    assert name.get_effective_value(map_ctx) == (None, ParameterSource.DEFAULT_MAP)
++    assert name.get_help_extra(map_ctx) == {}
++
++
++def test_current_item_replaces_default_item_for_default_origins():
++    cmd = click.Command("cli")
++    ctx = click.Context(cmd, show_effective=True)
++
++    custom = click.Option(["--n"], default=5, show_default="five")
++    assert custom.get_help_extra(ctx) == {"current": "5 (default)"}
++    assert custom.get_help_record(ctx)[1] == "[current: 5 (default)]"
++
++    map_ctx = click.Context(
++        cmd, show_effective=True, show_default=True, default_map={"n": 6}
++    )
++    plain = click.Option(["--n"], default=5)
++    assert plain.get_help_extra(map_ctx) == {"current": "6 (default map)"}
++
++    prompted = click.Option(["--u"], prompt=True, default="x", show_default="custom")
++    assert prompted.get_help_extra(ctx) == {
++        "default": "(custom)",
++        "current": "(prompt)",
++    }
++    assert prompted.get_help_record(ctx)[1] == (
++        "[default: (custom); current: (prompt)]"
++    )
++
++
++def test_item_order_with_env_range_and_required(monkeypatch):
++    monkeypatch.setenv("CLICK_EFF_N", "7")
++    cmd = click.Command("cli")
++    ctx = click.Context(cmd, show_effective=True)
++    opt = click.Option(
++        ["--n"],
++        type=click.IntRange(0, 10),
++        default=5,
++        show_default=True,
++        required=True,
++        envvar="CLICK_EFF_N",
++        show_envvar=True,
++        help="Num.",
++    )
++    assert opt.get_help_record(ctx)[1] == (
++        "Num.  [env var: CLICK_EFF_N; default: 5; current: 7 (env var CLICK_EFF_N);"
++        " 0<=x<=10; required]"
++    )
++
++    monkeypatch.delenv("CLICK_EFF_N")
++    assert opt.get_help_record(ctx)[1] == (
++        "Num.  [env var: CLICK_EFF_N; current: 5 (default); 0<=x<=10; required]"
++    )
++
++
++def test_option_setting_overrides_context_and_inheritance():
++    group = click.Group("grp")
++    cmd = click.Command("cli")
++
++    root = click.Context(group)
++    assert not root.show_effective
++    parent = click.Context(group, show_effective=True)
++    child = click.Context(cmd, parent=parent)
++    assert child.show_effective is True
++    disabled = click.Context(cmd, parent=parent, show_effective=False)
++    assert disabled.show_effective is False
++
++    off = click.Option(["--k"], default=3, show_effective=False)
++    assert off.get_help_extra(child) == {}
++    assert off.get_effective_value(child) == (3, ParameterSource.DEFAULT)
++
++    on = click.Option(["--k"], default=3, show_effective=True)
++    assert on.show_effective is True
++    assert on.get_help_extra(click.Context(cmd)) == {"current": "3 (default)"}
++    assert click.Option(["--k"], default=3).get_help_extra(disabled) == {}
++
++
++def test_disabled_feature_keeps_existing_help(runner):
++    cmd = click.Command("cli")
++    ctx = click.Context(cmd)
++    opt = click.Option(["--p"], default=8000, show_default=True)
++    assert opt.show_effective is None
++    assert opt.get_help_extra(ctx) == {"default": "8000"}
++    assert opt.get_help_record(ctx) == ("--p INTEGER", "[default: 8000]")
++
++    @click.command()
++    @click.option("--port", default=8000, help="Port.")
++    def serve(port):
++        click.echo(f"port={port}")
++
++    result = runner.invoke(serve, ["--help"], terminal_width=80)
++    assert result.output == (
++        "Usage: serve [OPTIONS]\n"
++        "\n"
++        "Options:\n"
++        "  --port INTEGER  Port.\n"
++        "  --help          Show this message and exit.\n"
++    )
++    result = runner.invoke(serve, [])
++    assert result.output == "port=8000\n"

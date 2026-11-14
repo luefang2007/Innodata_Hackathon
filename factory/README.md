@@ -113,9 +113,21 @@ The jury is an adversarial filter that uses the benchmark model. We disclose tha
 It is on by default (`FACTORY_JURY=0` turns it off) and costs a few cents per round on Haiku plus one
 generator call per deepening round.
 
-**Status.** Grading, context trimming, regression traps and the control flow were tested offline by
-replaying the 15 Haiku answers logged by the earlier probe. The deepening prompt has not been run
-against a live model yet, so the five packages in this submission were produced before the jury existed.
+**First live result (run `20261114T180829Z-s1`, in `submission_v2/`).** The run replayed run 1's design
+and implementation calls from the response cache and spent $11.01 on new calls (cap $12). In round 0
+Haiku solved all five tasks 3/3. One deepening round followed:
+
+| Task | Mechanism | What happened | Haiku after |
+|---|---|---|---|
+| 0101 lifecycle hooks | state and re-entrancy | deepened version passed every gate first try | **1/3** |
+| 0102 effective value | compatibility trap | passed after one repair but was no harder, so the original was kept | 3/3 |
+| 0103, 0104, 0105 | algorithm, call sites, algorithm | the deepen answer hit the 80k-token output limit, so the original was kept | 3/3 |
+
+The jury made one of five tasks measurably harder and did not lose a valid task. Two things it
+taught us: the deepen call needs a smaller reasoning budget or a larger output limit ($5 of the $11 went
+to three cut-off answers), and a deepened task that is not harder should get its second mechanism
+rather than be dropped. Before this run the same code was tested offline by replaying the 15 Haiku
+answers logged by the earlier probe.
 
 The same juror is available stand-alone: `python -m taskfactory probe <packages>`. It solved 14 of 15
 one-shot attempts on our single-feature tasks, which is the measurement that motivated the jury.

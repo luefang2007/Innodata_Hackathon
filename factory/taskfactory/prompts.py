@@ -162,7 +162,8 @@ Return:
 - notes: one or two sentences on what you implemented."""
 
 
-def deepen(spec: str, prev: dict, probe: dict, test_path: str, mechanism: str = "") -> str:
+def deepen(spec: str, gold_patch: str, test_content: str, probe: dict, test_path: str,
+           mechanism: str = "") -> str:
     """Escalation: the measured solve rate of a weaker model was too high; make the task deeper."""
     depth = (f"\nWhere the difficulty must come from - {mechanism}\nAdding more independent rules is not "
              f"enough: a solver that gets each rule right still passes. Build the rework around this "
@@ -201,13 +202,20 @@ Current instruction.md:
 {spec}
 SPEC>>>
 
-Current gold and tests (edits are relative to the ORIGINAL click source):
-<<<PREVIOUS
-{json.dumps(prev, indent=1)[:60000]}
-PREVIOUS>>>
+Current gold, as a unified diff against the ORIGINAL click source:
+<<<GOLD
+{gold_patch[:60000]}
+GOLD>>>
 
-Return a complete new answer in the same format: all edits again against the original source, the full
-test file `{test_path}`, and the full revised instruction_md."""
+Current test file `{test_path}`:
+<<<TESTS
+{test_content[:60000]}
+TESTS>>>
+
+Return a complete new answer in the usual format: `edits` are search/replace edits against the ORIGINAL
+click source shown in the system prompt (not against the current gold), covering the whole reworked
+feature; `test_file_content` is the full test file `{test_path}`; `instruction_md` is the full revised
+instruction.md."""
 
 
 def repair(spec: str, prev: dict, failures: str, test_path: str) -> str:

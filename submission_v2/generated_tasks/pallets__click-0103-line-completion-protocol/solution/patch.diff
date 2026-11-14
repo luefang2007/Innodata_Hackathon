@@ -1,0 +1,192 @@
+diff --git a/src/click/shell_completion.py b/src/click/shell_completion.py
+index 9cf2314..2a99f2b 100644
+--- a/src/click/shell_completion.py
++++ b/src/click/shell_completion.py
+@@ -5,6 +5,7 @@ import os
+ import re
+ import typing as t
+ from gettext import gettext as _
++from gettext import ngettext
+ 
+ from .core import Argument
+ from .core import Command
+@@ -13,9 +14,21 @@ from .core import Group
+ from .core import Option
+ from .core import Parameter
+ from .core import ParameterSource
++from .exceptions import ClickException
+ from .utils import echo
+ 
+ 
++class CompletionRequestError(ClickException):
++    """Raised by a completion class when the completion request found in
++    the environment is malformed. :func:`shell_complete` reports the
++    message on stderr and exits with status 1.
++
++    .. versionadded:: 8.6.0
++    """
++
++    exit_code: t.ClassVar[int] = 1
++
++
+ def shell_complete(
+     cli: Command,
+     ctx_args: cabc.MutableMapping[str, t.Any],
+@@ -35,7 +48,7 @@ def shell_complete(
+         instruction and shell, in the form ``instruction_shell``.
+     :return: Status code to exit with.
+     """
+-    shell, _, instruction = instruction.partition("_")
++    shell, _sep, instruction = instruction.partition("_")
+     comp_cls = get_completion_class(shell)
+ 
+     if comp_cls is None:
+@@ -43,14 +56,28 @@ def shell_complete(
+ 
+     comp = comp_cls(cli, ctx_args, prog_name, complete_var)
+ 
+-    # Write bytes, otherwise Windows text stdout translates LF to CRLF and breaks.
+-    if instruction == "source":
+-        echo(comp.source().encode(), nl=False)
+-        return 0
++    try:
++        # Write bytes, otherwise Windows text stdout translates LF to CRLF and
++        # breaks.
++        if instruction == "source":
++            source = comp.source()
++            echo(source.encode(), nl=False)
++            return 0
++
++        if instruction == "complete":
++            output = comp.complete()
++
++            if isinstance(comp, LineComplete):
++                # The line protocol terminates every candidate itself, so an
++                # empty result stays empty instead of becoming a blank line.
++                echo(output.encode(), nl=False)
++            else:
++                echo(output.encode())
+ 
+-    if instruction == "complete":
+-        echo(comp.complete().encode())
+-        return 0
++            return 0
++    except CompletionRequestError as e:
++        echo(_("Error: {message}").format(message=e.format_message()), err=True)
++        return 1
+ 
+     return 1
+ 
+@@ -547,9 +574,103 @@ class PowerShellComplete(ShellComplete):
+         return f"{item.type}\n{item.value}\n{help_}"
+ 
+ 
++_SOURCE_LINE = """\
++complete -o default -o nosort -C '%(complete_var)s=line_complete %(prog_name)s' \
++%(prog_name)s
++"""
++
++
++class LineComplete(ShellComplete):
++    """Shell completion for Bash's ``complete -C`` protocol. The raw command
++    line is read from ``COMP_LINE`` and the cursor offset from
++    ``COMP_POINT``. One plain candidate is printed per line.
++
++    .. versionadded:: 8.6.0
++    """
++
++    name: t.ClassVar[str] = "line"
++    source_template: t.ClassVar[str] = _SOURCE_LINE
++
++    def _parse_request(self) -> tuple[list[str], str]:
++        """Return all complete words (including the program word) and the
++        incomplete word, based on ``COMP_LINE`` and ``COMP_POINT``.
++        """
++        if "COMP_LINE" not in os.environ:
++            raise CompletionRequestError(_("COMP_LINE is not set."))
++
++        line = os.environ["COMP_LINE"]
++        raw_point = os.environ.get("COMP_POINT", "")
++
++        if not raw_point:
++            point = len(line)
++        elif re.fullmatch(r"[0-9]+", raw_point) is None:
++            raise CompletionRequestError(
++                _(
++                    "Invalid COMP_POINT value {value!r}: expected a"
++                    " non-negative integer."
++                ).format(value=raw_point)
++            )
++        else:
++            point = int(raw_point)
++
++            if point > len(line):
++                raise CompletionRequestError(
++                    ngettext(
++                        "COMP_POINT {point} is past the end of COMP_LINE"
++                        " ({length} character).",
++                        "COMP_POINT {point} is past the end of COMP_LINE"
++                        " ({length} characters).",
++                        len(line),
++                    ).format(point=point, length=len(line))
++                )
++
++        text = line[:point]
++        words = split_arg_string(text)
++
++        # If the text ends in free (unquoted, unescaped) whitespace, a
++        # following character starts a new word. Otherwise it extends the
++        # last word, which is then the incomplete one.
++        if not words or len(split_arg_string(f"{text}_")) > len(words):
++            return words, ""
++
++        return words[:-1], words[-1]
++
++    def get_completion_args(self) -> tuple[list[str], str]:
++        words, incomplete = self._parse_request()
++        return words[1:], incomplete
++
++    def format_completion(self, item: CompletionItem[t.Any]) -> str:
++        return str(item.value)
++
++    def complete(self) -> str:
++        words, incomplete = self._parse_request()
++
++        # The first complete word is the program name. Without it there is
++        # nothing to resolve.
++        if not words:
++            return ""
++
++        completions = self.get_completions(words[1:], incomplete)
++        out = []
++
++        for item in completions:
++            if item.type != "plain":
++                continue
++
++            value = self.format_completion(item)
++
++            if "\n" in value or "\r" in value:
++                continue
++
++            out.append(f"{value}\n")
++
++        return "".join(out)
++
++
+ _available_shells: t.Final[dict[str, type[ShellComplete]]] = {
+     "bash": BashComplete,
+     "fish": FishComplete,
++    "line": LineComplete,
+     "powershell": PowerShellComplete,
+     "zsh": ZshComplete,
+ }
+@@ -580,6 +701,8 @@ def add_completion_class(
+ @t.overload
+ def get_completion_class(shell: t.Literal["bash"]) -> type[BashComplete]: ...
+ @t.overload
++def get_completion_class(shell: t.Literal["line"]) -> type[LineComplete]: ...
++@t.overload
+ def get_completion_class(shell: t.Literal["fish"]) -> type[FishComplete]: ...
+ @t.overload
+ def get_completion_class(shell: t.Literal["zsh"]) -> type[ZshComplete]: ...

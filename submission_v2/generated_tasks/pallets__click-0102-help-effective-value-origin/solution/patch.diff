@@ -1,0 +1,238 @@
+diff --git a/src/click/core.py b/src/click/core.py
+index e4b6b57..92f2755 100644
+--- a/src/click/core.py
++++ b/src/click/core.py
+@@ -336,6 +336,7 @@ class Context:
+     auto_envvar_prefix: str | None
+     color: bool | None
+     show_default: bool | None
++    show_effective: bool | None
+     _close_callbacks: list[t.Callable[[], t.Any]]
+     _depth: int
+     _parameter_source: dict[str, ParameterSource]
+@@ -360,6 +361,7 @@ class Context:
+         token_normalize_func: t.Callable[[str], str] | None = None,
+         color: bool | None = None,
+         show_default: bool | None = None,
++        show_effective: bool | None = None,
+     ) -> None:
+         #: the parent context or `None` if none exists.
+         self.parent = parent
+@@ -507,6 +509,13 @@ class Context:
+         #: Show option default values when formatting help text.
+         self.show_default = show_default
+ 
++        if show_effective is None and parent is not None:
++            show_effective = parent.show_effective
++
++        #: Show each option's effective value and its origin when
++        #: formatting help text.
++        self.show_effective = show_effective
++
+         self._close_callbacks = []
+         self._depth = 0
+         self._parameter_source = {}
+@@ -2979,6 +2988,7 @@ class Option(Parameter):
+     show_default: bool | str | None
+     show_choices: bool
+     show_envvar: bool
++    show_effective: bool | None
+ 
+     def __init__(
+         self,
+@@ -2999,6 +3009,7 @@ class Option(Parameter):
+         show_choices: bool = True,
+         show_envvar: bool = False,
+         deprecated: bool | str = False,
++        show_effective: bool | None = None,
+         **attrs: t.Any,
+     ) -> None:
+         super().__init__(
+@@ -3053,6 +3064,7 @@ class Option(Parameter):
+         self.show_default = show_default
+         self.show_choices = show_choices
+         self.show_envvar = show_envvar
++        self.show_effective = show_effective
+ 
+         # Phase 5: validate. Raises on illegal kwarg combinations.
+         self._validate(prompt, deprecated)
+@@ -3409,6 +3421,8 @@ class Option(Parameter):
+             )
+         if "default" in extra:
+             extra_items.append(_("default: {default}").format(default=extra["default"]))
++        if "current" in extra:
++            extra_items.append(_("current: {current}").format(current=extra["current"]))
+         if "range" in extra:
+             extra_items.append(extra["range"])
+         if "required" in extra:
+@@ -3488,6 +3502,30 @@ class Option(Parameter):
+             if default_string:
+                 extra["default"] = default_string
+ 
++        show_effective = (
++            self.show_effective
++            if self.show_effective is not None
++            else getattr(ctx, "show_effective", None)
++        )
++
++        if show_effective:
++            resolved = self._resolve_effective_value(ctx)
++
++            if resolved is not None:
++                eff_value, eff_source, eff_envvar = resolved
++                current = self._format_effective_value(
++                    eff_value, eff_source, eff_envvar
++                )
++
++                if current is not None:
++                    extra["current"] = current
++
++                    if eff_source in (
++                        ParameterSource.DEFAULT,
++                        ParameterSource.DEFAULT_MAP,
++                    ):
++                        extra.pop("default", None)
++
+         if (
+             isinstance(self.type, types._NumberRangeBase)
+             # skip count with default range type
+@@ -3503,6 +3541,128 @@ class Option(Parameter):
+ 
+         return extra
+ 
++    def _resolve_effective_value(
++        self, ctx: Context
++    ) -> tuple[t.Any, ParameterSource, str | None] | None:
++        """Resolve the effective value, its source, and the name of the
++        environment variable that supplied it (if any).
++
++        :meta private:
++        """
++        envvars: list[str] = []
++
++        if self.envvar:
++            if isinstance(self.envvar, str):
++                envvars.append(self.envvar)
++            else:
++                envvars.extend(self.envvar)
++
++        for envvar in envvars:
++            rv = os.environ.get(envvar)
++
++            if rv:
++                return rv, ParameterSource.ENVIRONMENT, envvar
++
++        if self.allow_from_autoenv and ctx.auto_envvar_prefix is not None and self.name:
++            envvar = f"{ctx.auto_envvar_prefix}_{self.name.upper()}"
++            rv = os.environ.get(envvar)
++
++            if rv:
++                return rv, ParameterSource.ENVIRONMENT, envvar
++
++        if self.prompt is not None and (self.required or self.prompt_required):
++            return None, ParameterSource.PROMPT, None
++
++        if ctx._default_map_has(self.name):
++            assert ctx.default_map is not None
++            return ctx.default_map[self.name], ParameterSource.DEFAULT_MAP, None
++
++        value = self.get_default(ctx, call=False)
++
++        if value is UNSET:
++            return None
++
++        return value, ParameterSource.DEFAULT, None
++
++    def get_effective_value(
++        self, ctx: Context
++    ) -> tuple[t.Any, ParameterSource] | None:
++        """Return the value this option would receive if it were omitted
++        from the command line, together with its source.
++
++        Sources are checked in order: environment variables, a prompt,
++        :attr:`Context.default_map`, then the option's default. Returns
++        ``None`` if no value is available. Never calls callables,
++        converts types, runs callbacks, or prompts.
++
++        :param ctx: The current context.
++        """
++        resolved = self._resolve_effective_value(ctx)
++
++        if resolved is None:
++            return None
++
++        return resolved[0], resolved[1]
++
++    def _format_effective_value(
++        self, value: t.Any, source: ParameterSource, envvar: str | None
++    ) -> str | None:
++        """Render the ``current`` help item text, or ``None`` to omit it.
++
++        :meta private:
++        """
++        if source is ParameterSource.PROMPT:
++            return _("(prompt)")
++
++        if value is None:
++            return None
++
++        if isinstance(value, (list, tuple)) and not value:
++            return None
++
++        if (
++            self.is_bool_flag
++            and not self.secondary_opts
++            and source is ParameterSource.DEFAULT
++            and value is False
++        ):
++            return None
++
++        if inspect.isfunction(value):
++            rendered = _("(dynamic)")
++        elif isinstance(value, enum.Enum):
++            rendered = value.name
++        elif (
++            isinstance(value, bool)
++            and self.is_bool_flag
++            and self.secondary_opts
++            and source in (ParameterSource.DEFAULT, ParameterSource.DEFAULT_MAP)
++        ):
++            rendered = _split_opt((self.opts if value else self.secondary_opts)[0])[1]
++        elif isinstance(value, (list, tuple)):
++            rendered = ", ".join(
++                " ".join(str(i) for i in item)
++                if isinstance(item, (list, tuple))
++                else str(item)
++                for item in value
++            )
++        elif isinstance(value, str) and value == "":
++            rendered = '""'
++        else:
++            rendered = str(value)
++
++        if self.hide_input:
++            rendered = "***"
++
++        if source is ParameterSource.ENVIRONMENT:
++            origin = _("env var {name}").format(name=envvar)
++        elif source is ParameterSource.DEFAULT_MAP:
++            origin = _("default map")
++        else:
++            origin = _("default")
++
++        return f"{rendered} ({origin})"
++
+     def prompt_for_value(self, ctx: Context) -> t.Any:
+         """This is an alternative flow that can be activated in the full
+         value processing if a value does not exist.  It will prompt the
+diff --git a/src/click/types.py b/src/click/types.py
+index b6e98a9..fe52a80 100644
+--- a/src/click/types.py
++++ b/src/click/types.py
+@@ -1433,5 +1433,6 @@ UUID: t.Final[UUIDParameterType] = UUIDParameterType()
+ class OptionHelpExtra(t.TypedDict, total=False):
+     envvars: tuple[str, ...]
+     default: str
++    current: str
+     range: str
+     required: str

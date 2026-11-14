@@ -1,0 +1,29 @@
+[metadata]
+name = "pallets__click-0105-numbered-choice-prompts"
+instance_id = "pallets__click-0105-numbered-choice-prompts"
+task = "swe-feature-implementation"
+source_repo = "pallets/click"
+base_commit = "cf19179e8e2fd54c601378cec9e0d21bb12b6fb1"
+license = "BSD-3-Clause"
+language = "en"
+programming_language = "python"
+
+[environment]
+docker_image = ""
+build_timeout_sec = 3600.0
+cpus = 2
+workdir = "/app"
+memory_mb = 4096
+network_mode = "public"
+
+[agent]
+timeout_sec = 3600.0
+
+[verifier]
+environment_mode = "shared"
+timeout_sec = 900.0
+
+[rollout_baseline.oracle]
+reward = 1.0
+[rollout_baseline.nop]
+reward = 0.0

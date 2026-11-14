@@ -1,0 +1,1042 @@
+diff --git a/tests/test_group_subcommand_lifecycle_hooks.py b/tests/test_group_subcommand_lifecycle_hooks.py
+new file mode 100644
+index 0000000..34fbf2d
+--- /dev/null
++++ b/tests/test_group_subcommand_lifecycle_hooks.py
+@@ -0,0 +1,1036 @@
++import click
++from click.core import ParameterSource
++from click.exceptions import Exit
++
++SKIP_MESSAGE = "SkipSubcommand raised outside of a before_subcommand hook."
++
++
++def lines(*items):
++    return "".join(f"{item}\n" for item in items)
++
++
++def describe(exc):
++    if exc is None:
++        return "ok"
++    if isinstance(exc, Exit):
++        return f"Exit({exc.exit_code})"
++    return type(exc).__name__
++
++
++def track_parse(ctx, param, value):
++    name = ctx.info_name
++    click.echo(f"parse {name}")
++    ctx.call_on_close(lambda: click.echo(f"close {name}"))
++    return value
++
++
++def test_non_chain_full_event_sequence(runner):
++    @click.group()
++    @click.pass_context
++    def cli(ctx):
++        ctx.call_on_close(lambda: click.echo("close cli"))
++        click.echo("group")
++
++    @cli.before_subcommand
++    def before(ctx):
++        click.echo(f"before {ctx.info_name}")
++
++    @cli.after_subcommand
++    def after(ctx, result):
++        click.echo(f"after {ctx.info_name} {result!r}")
++
++    @cli.teardown_subcommand
++    def teardown(ctx, exc):
++        click.echo(f"teardown {ctx.info_name} {describe(exc)}")
++
++    @cli.result_callback()
++    def done(result):
++        click.echo(f"result {result!r}")
++
++    @cli.command()
++    @click.pass_context
++    def run(ctx):
++        ctx.call_on_close(lambda: click.echo("close run"))
++        click.echo("run")
++        return 7
++
++    result = runner.invoke(cli, ["run"])
++    assert result.exit_code == 0, result.output
++    assert result.output == lines(
++        "group",
++        "before run",
++        "run",
++        "after run 7",
++        "teardown run ok",
++        "result 7",
++        "close run",
++        "close cli",
++    )
++
++
++def build_chain(fail_on=None):
++    @click.group(chain=True)
++    def cli():
++        click.echo("group")
++
++    @cli.before_subcommand
++    def before(ctx):
++        click.echo(f"before {ctx.info_name}")
++
++    @cli.after_subcommand
++    def after(ctx, result):
++        click.echo(f"after {ctx.info_name} {result!r}")
++
++    @cli.teardown_subcommand
++    def teardown(ctx, exc):
++        click.echo(f"teardown {ctx.info_name} {describe(exc)}")
++
++    @cli.result_callback()
++    def done(results):
++        click.echo(f"results {results!r}")
++
++    def make(name, value):
++        @cli.command(name)
++        @click.option("--x", callback=track_parse)
++        def cmd(x):
++            click.echo(name)
++            if name == fail_on:
++                raise click.ClickException(f"{name} failed")
++            return value
++
++    for name, value in (("a", 1), ("b", 2), ("c", 3)):
++        make(name, value)
++
++    return cli
++
++
++def test_chain_full_event_sequence(runner):
++    result = runner.invoke(build_chain(), ["a", "b"])
++    assert result.exit_code == 0, result.output
++    assert result.output == lines(
++        "group",
++        "parse a",
++        "parse b",
++        "before a",
++        "a",
++        "after a 1",
++        "teardown a ok",
++        "close a",
++        "before b",
++        "b",
++        "after b 2",
++        "teardown b ok",
++        "close b",
++        "results [1, 2]",
++    )
++
++
++def test_chain_failure_midway_stops_remaining_subcommands(runner):
++    result = runner.invoke(build_chain(fail_on="b"), ["a", "b", "c"])
++    assert result.exit_code == 1
++    assert result.output == lines(
++        "group",
++        "parse a",
++        "parse b",
++        "parse c",
++        "before a",
++        "a",
++        "after a 1",
++        "teardown a ok",
++        "close a",
++        "before b",
++        "b",
++        "teardown b ClickException",
++        "close b",
++        "Error: b failed",
++    )
++
++
++def build_nested(leaf_raises):
++    @click.group()
++    def outer():
++        click.echo("outer")
++
++    @outer.before_subcommand
++    def ob(ctx):
++        click.echo(f"outer-before {ctx.info_name}")
++
++    @outer.after_subcommand
++    def oa(ctx, result):
++        click.echo(f"outer-after {ctx.info_name} {result!r}")
++
++    @outer.teardown_subcommand
++    def ot(ctx, exc):
++        click.echo(f"outer-teardown {ctx.info_name} {describe(exc)}")
++
++    @outer.result_callback()
++    def outer_done(result):
++        click.echo(f"outer-result {result!r}")
++
++    @outer.group()
++    @click.pass_context
++    def inner(ctx):
++        ctx.call_on_close(lambda: click.echo("close inner"))
++        click.echo("inner")
++
++    @inner.before_subcommand
++    def ib(ctx):
++        click.echo(f"inner-before {ctx.info_name}")
++
++    @inner.after_subcommand
++    def ia(ctx, result):
++        click.echo(f"inner-after {ctx.info_name} {result!r}")
++
++    @inner.teardown_subcommand
++    def it(ctx, exc):
++        click.echo(f"inner-teardown {ctx.info_name} {describe(exc)}")
++
++    @inner.result_callback()
++    def inner_done(result):
++        click.echo(f"inner-result {result!r}")
++        return "inner-rv"
++
++    @inner.command()
++    @click.pass_context
++    def leaf(ctx):
++        ctx.call_on_close(lambda: click.echo("close leaf"))
++        click.echo("leaf")
++        if leaf_raises:
++            raise click.SkipSubcommand()
++        return "leaf-rv"
++
++    return outer
++
++
++def test_nested_groups_success_sequence(runner):
++    result = runner.invoke(build_nested(False), ["inner", "leaf"])
++    assert result.exit_code == 0, result.output
++    assert result.output == lines(
++        "outer",
++        "outer-before inner",
++        "inner",
++        "inner-before leaf",
++        "leaf",
++        "inner-after leaf 'leaf-rv'",
++        "inner-teardown leaf ok",
++        "inner-result 'leaf-rv'",
++        "close leaf",
++        "outer-after inner 'inner-rv'",
++        "outer-teardown inner ok",
++        "outer-result 'inner-rv'",
++        "close inner",
++    )
++
++
++def test_nested_error_propagates_through_both_teardowns(runner):
++    result = runner.invoke(build_nested(True), ["inner", "leaf"])
++    assert result.exit_code == 1
++    assert result.output == lines(
++        "outer",
++        "outer-before inner",
++        "inner",
++        "inner-before leaf",
++        "leaf",
++        "inner-teardown leaf SkipSubcommand",
++        "close leaf",
++        "outer-teardown inner SkipSubcommand",
++        "close inner",
++        f"Error: {SKIP_MESSAGE}",
++    )
++
++
++def test_teardown_hooks_all_run_and_last_exception_wins(runner):
++    @click.group()
++    def cli():
++        pass
++
++    @cli.teardown_subcommand
++    def t1(ctx, exc):
++        click.echo(f"t1 {type(exc).__name__}: {exc} {exc.ctx is ctx}")
++
++    @cli.teardown_subcommand
++    def t2(ctx, exc):
++        click.echo(f"t2 {type(exc).__name__}: {exc}")
++        raise click.UsageError("t2 failed")
++
++    @cli.teardown_subcommand
++    def t3(ctx, exc):
++        click.echo(f"t3 {type(exc).__name__}: {exc}")
++        raise click.ClickException("t3 failed")
++
++    @cli.command()
++    def run():
++        click.echo("run")
++        raise click.ClickException("run failed")
++
++    result = runner.invoke(cli, ["run"])
++    assert result.exit_code == 2
++    assert result.output == lines(
++        "run",
++        "t3 ClickException: run failed",
++        "t2 ClickException: t3 failed",
++        "t1 UsageError: t2 failed True",
++        "Usage: cli run [OPTIONS]",
++        "Try 'cli run --help' for help.",
++        "",
++        "Error: t2 failed",
++    )
++
++
++def test_exit_from_teardown_closes_context_first(runner):
++    @click.group()
++    def cli():
++        pass
++
++    @cli.after_subcommand
++    def after(ctx, result):
++        click.echo(f"after {result!r}")
++
++    @cli.teardown_subcommand
++    def t1(ctx, exc):
++        click.echo(f"t1 {describe(exc)}")
++
++    @cli.teardown_subcommand
++    def t2(ctx, exc):
++        click.echo(f"t2 {describe(exc)}")
++        ctx.exit(4)
++
++    @cli.result_callback()
++    def done(result):
++        click.echo("result")
++
++    @cli.command()
++    @click.pass_context
++    def run(ctx):
++        ctx.call_on_close(lambda: click.echo("close run"))
++        click.echo("run")
++        return 7
++
++    result = runner.invoke(cli, ["run"])
++    assert result.exit_code == 4
++    assert result.output == lines("run", "after 7", "t2 ok", "close run", "t1 Exit(4)")
++
++
++def test_chain_before_hook_exit_stops_chain(runner):
++    @click.group(chain=True)
++    def cli():
++        pass
++
++    @cli.before_subcommand
++    def before(ctx):
++        click.echo(f"before {ctx.info_name}")
++        if ctx.info_name == "b":
++            ctx.exit(0)
++
++    @cli.after_subcommand
++    def after(ctx, result):
++        click.echo(f"after {ctx.info_name}")
++
++    @cli.teardown_subcommand
++    def teardown(ctx, exc):
++        click.echo(f"teardown {ctx.info_name} {describe(exc)}")
++
++    @cli.result_callback()
++    def done(results):
++        click.echo("results")
++
++    for name in ("a", "b", "c"):
++
++        def cb(name=name):
++            click.echo(name)
++
++        cli.add_command(click.Command(name, callback=cb))
++
++    result = runner.invoke(cli, ["a", "b", "c"])
++    assert result.exit_code == 0, result.output
++    assert result.output == lines(
++        "before a",
++        "a",
++        "after a",
++        "teardown a ok",
++        "before b",
++        "teardown b Exit(0)",
++    )
++
++
++def test_skip_in_chain_mode_collects_skip_result(runner):
++    @click.group(chain=True)
++    def cli():
++        pass
++
++    @cli.before_subcommand
++    def gate(ctx):
++        click.echo(f"gate {ctx.info_name}")
++        if ctx.info_name == "b":
++            raise click.SkipSubcommand("skipped-b")
++
++    @cli.before_subcommand
++    def log(ctx):
++        click.echo(f"log {ctx.info_name}")
++
++    @cli.after_subcommand
++    def after(ctx, result):
++        click.echo(f"after {ctx.info_name} {result!r}")
++
++    @cli.teardown_subcommand
++    def teardown(ctx, exc):
++        click.echo(f"teardown {ctx.info_name} {describe(exc)}")
++
++    @cli.result_callback()
++    def done(results):
++        click.echo(f"results {results!r}")
++        return results
++
++    @cli.command()
++    def a():
++        click.echo("a")
++        return 1
++
++    @cli.command(deprecated=True)
++    def b():
++        click.echo("b")
++        return 2
++
++    @cli.command()
++    def c():
++        click.echo("c")
++        return 3
++
++    result = runner.invoke(cli, ["a", "b", "c"], standalone_mode=False)
++    assert result.exception is None, result.output
++    assert result.return_value == [1, "skipped-b", 3]
++    assert result.output == lines(
++        "gate a",
++        "log a",
++        "a",
++        "after a 1",
++        "teardown a ok",
++        "gate b",
++        "teardown b ok",
++        "gate c",
++        "log c",
++        "c",
++        "after c 3",
++        "teardown c ok",
++        "results [1, 'skipped-b', 3]",
++    )
++
++
++def test_skip_non_chain_result_teardown_failure_and_nested_group(runner):
++    @click.group()
++    def cli():
++        pass
++
++    @cli.before_subcommand
++    def gate(ctx):
++        click.echo(f"gate {ctx.info_name}")
++        raise click.SkipSubcommand()
++
++    @cli.before_subcommand
++    def never(ctx):
++        click.echo("never")
++
++    @cli.teardown_subcommand
++    def teardown(ctx, exc):
++        click.echo(f"teardown {ctx.info_name} {describe(exc)}")
++        if ctx.info_name == "loud":
++            raise click.ClickException("cleanup failed")
++
++    @cli.result_callback()
++    def done(result):
++        click.echo(f"result {result!r}")
++        return "rc"
++
++    @cli.command()
++    def quiet():
++        click.echo("quiet")
++
++    @cli.command()
++    def loud():
++        click.echo("loud")
++
++    result = runner.invoke(cli, ["quiet"], standalone_mode=False)
++    assert result.exception is None, result.output
++    assert result.return_value == "rc"
++    assert result.output == lines("gate quiet", "teardown quiet ok", "result None")
++
++    result = runner.invoke(cli, ["loud"])
++    assert result.exit_code == 1
++    assert result.output == lines(
++        "gate loud", "teardown loud ok", "Error: cleanup failed"
++    )
++
++    @click.group()
++    def outer():
++        click.echo("outer")
++
++    @outer.before_subcommand
++    def outer_gate(ctx):
++        click.echo(f"gate {ctx.info_name}")
++        raise click.SkipSubcommand("skipped")
++
++    @outer.teardown_subcommand
++    def outer_teardown(ctx, exc):
++        click.echo(f"teardown {ctx.info_name} {describe(exc)}")
++
++    @outer.group()
++    def inner():
++        click.echo("inner")
++
++    @inner.before_subcommand
++    def inner_before(ctx):
++        click.echo("inner-before")
++
++    @inner.command()
++    def leaf():
++        click.echo("leaf")
++
++    result = runner.invoke(outer, ["inner", "leaf"], standalone_mode=False)
++    assert result.exception is None, result.output
++    assert result.return_value == "skipped"
++    assert result.output == lines("outer", "gate inner", "teardown inner ok")
++
++
++def test_skip_outside_before_hook_is_an_error(runner):
++    assert click.SkipSubcommand is click.exceptions.SkipSubcommand
++    assert issubclass(click.SkipSubcommand, click.ClickException)
++    skip = click.SkipSubcommand("value")
++    assert skip.result == "value"
++    assert skip.exit_code == 1
++    assert str(skip) == SKIP_MESSAGE
++    assert click.SkipSubcommand().result is None
++
++    @click.group(chain=True)
++    def cli():
++        pass
++
++    @cli.after_subcommand
++    def after(ctx, result):
++        click.echo(f"after {ctx.info_name}")
++        raise click.SkipSubcommand("ignored")
++
++    @cli.teardown_subcommand
++    def teardown(ctx, exc):
++        click.echo(f"teardown {ctx.info_name} {type(exc).__name__} {exc.result!r}")
++
++    @cli.command()
++    def a():
++        click.echo("a")
++
++    @cli.command()
++    def b():
++        click.echo("b")
++
++    result = runner.invoke(cli, ["a", "b"])
++    assert result.exit_code == 1
++    assert result.output == lines(
++        "a",
++        "after a",
++        "teardown a SkipSubcommand 'ignored'",
++        f"Error: {SKIP_MESSAGE}",
++    )
++
++
++def test_hooks_registered_during_invocation_apply_to_later_subcommands(runner):
++    @click.group(chain=True)
++    def cli():
++        click.echo("group")
++
++    def added_before(ctx):
++        click.echo(f"added-before {ctx.info_name}")
++
++    def added_teardown(ctx, exc):
++        click.echo(f"added-teardown {ctx.info_name}")
++
++    def late(ctx):
++        click.echo(f"late {ctx.info_name}")
++
++    @cli.before_subcommand
++    def first(ctx):
++        click.echo(f"first {ctx.info_name}")
++        if ctx.info_name == "a":
++            cli.before_subcommand(added_before)
++            cli.teardown_subcommand(added_teardown)
++
++    def register_late(ctx, param, value):
++        cli.before_subcommand(late)
++        return value
++
++    @cli.command()
++    def a():
++        click.echo("a")
++
++    @cli.command()
++    @click.option("--x", callback=register_late)
++    def b(x):
++        click.echo("b")
++
++    result = runner.invoke(cli, ["a", "b"])
++    assert result.exit_code == 0, result.output
++    assert result.output == lines(
++        "group",
++        "first a",
++        "late a",
++        "a",
++        "first b",
++        "late b",
++        "added-before b",
++        "b",
++        "added-teardown b",
++    )
++
++
++def test_reentrant_invocation_from_a_hook(runner):
++    @click.group()
++    def cli():
++        click.echo("group")
++
++    @cli.before_subcommand
++    def before(ctx):
++        click.echo(f"before {ctx.info_name}")
++        if ctx.info_name == "outer":
++            rv = cli.main(["inner"], prog_name="cli", standalone_mode=False)
++            click.echo(f"nested {rv!r} {click.get_current_context() is ctx}")
++
++    @cli.after_subcommand
++    def after(ctx, result):
++        click.echo(f"after {ctx.info_name} {result!r}")
++
++    @cli.teardown_subcommand
++    def teardown(ctx, exc):
++        click.echo(f"teardown {ctx.info_name} {describe(exc)}")
++
++    @cli.command()
++    def outer():
++        click.echo("outer")
++        return "o"
++
++    @cli.command()
++    def inner():
++        click.echo("inner")
++        return "i"
++
++    result = runner.invoke(cli, ["outer"])
++    assert result.exit_code == 0, result.output
++    assert result.output == lines(
++        "group",
++        "before outer",
++        "group",
++        "before inner",
++        "inner",
++        "after inner 'i'",
++        "teardown inner ok",
++        "nested 'i' True",
++        "outer",
++        "after outer 'o'",
++        "teardown outer ok",
++    )
++
++
++def test_before_hook_sees_processed_values_and_can_rewrite_params(runner):
++    seen = {}
++
++    @click.group()
++    @click.option("--verbose", is_flag=True)
++    def cli(verbose):
++        pass
++
++    @cli.before_subcommand
++    def before(ctx):
++        click.echo("before")
++        seen["current"] = click.get_current_context() is ctx
++        seen["sources"] = {
++            n: ctx.get_parameter_source(n) for n in ("name", "count", "level", "token")
++        }
++        seen["parent"] = dict(ctx.parent.params)
++        ctx.params["count"] = ctx.params["count"] * 10
++        ctx.params.pop("level")
++        ctx.params["extra"] = "x"
++
++    @cli.command()
++    @click.option("--name", envvar="HOOK_NAME")
++    @click.option("--count", type=int, default=2)
++    @click.option("--level", default="low")
++    @click.option("--token", prompt=True)
++    def run(name, count, token, extra):
++        click.echo(f"{name} {count} {token} {extra}")
++
++    result = runner.invoke(
++        cli,
++        ["--verbose", "run", "--count", "3"],
++        input="secret\n",
++        env={"HOOK_NAME": "alice"},
++        default_map={"run": {"level": "high"}},
++    )
++    assert result.exit_code == 0, result.output
++    assert result.output == lines("Token: secret", "before", "alice 30 secret x")
++    assert seen["current"] is True
++    assert seen["sources"] == {
++        "name": ParameterSource.ENVIRONMENT,
++        "count": ParameterSource.COMMANDLINE,
++        "level": ParameterSource.DEFAULT_MAP,
++        "token": ParameterSource.PROMPT,
++    }
++    assert seen["parent"] == {"verbose": True}
++
++
++def test_before_hook_usage_error_uses_subcommand_usage(runner):
++    @click.group()
++    @click.option("--dry-run", is_flag=True)
++    def cli(dry_run):
++        pass
++
++    @cli.before_subcommand
++    def check(ctx):
++        if ctx.parent.params["dry_run"] and ctx.info_name == "deploy":
++            raise click.UsageError("deploy cannot run with --dry-run")
++
++    @cli.teardown_subcommand
++    def teardown(ctx, exc):
++        if exc is None:
++            click.echo("teardown ok")
++        else:
++            click.echo(f"teardown {type(exc).__name__} {exc.ctx is ctx}")
++
++    @cli.command()
++    def deploy():
++        click.echo("deploying")
++
++    result = runner.invoke(cli, ["--dry-run", "deploy"])
++    assert result.exit_code == 2
++    assert result.output == lines(
++        "teardown UsageError True",
++        "Usage: cli deploy [OPTIONS]",
++        "Try 'cli deploy --help' for help.",
++        "",
++        "Error: deploy cannot run with --dry-run",
++    )
++
++    result = runner.invoke(cli, ["deploy"])
++    assert result.exit_code == 0, result.output
++    assert result.output == lines("deploying", "teardown ok")
++
++
++def test_after_hook_error_skips_rest_and_result_callback(runner):
++    @click.group()
++    def cli():
++        pass
++
++    @cli.after_subcommand
++    def after_a(ctx, result):
++        click.echo("after-a")
++
++    @cli.after_subcommand
++    def after_b(ctx, result):
++        click.echo("after-b")
++        raise click.ClickException("boom")
++
++    @cli.teardown_subcommand
++    def teardown(ctx, exc):
++        click.echo(f"teardown {describe(exc)}")
++
++    @cli.result_callback()
++    def done(result):
++        click.echo("result-callback")
++
++    @cli.command()
++    def run():
++        click.echo("run")
++
++    result = runner.invoke(cli, ["run"])
++    assert result.exit_code == 1
++    assert result.output == lines(
++        "run", "after-b", "teardown ClickException", "Error: boom"
++    )
++
++
++def test_subcommand_exit_and_abort_cleanup_order(runner):
++    @click.group()
++    def cli():
++        pass
++
++    @cli.before_subcommand
++    def before(ctx):
++        click.echo(f"before {ctx.info_name}")
++
++    @cli.after_subcommand
++    def after(ctx, result):
++        click.echo(f"after {ctx.info_name}")
++
++    @cli.teardown_subcommand
++    def teardown(ctx, exc):
++        click.echo(f"teardown {ctx.info_name} {describe(exc)}")
++
++    @cli.command()
++    @click.pass_context
++    def quit(ctx):
++        ctx.call_on_close(lambda: click.echo("close quit"))
++        click.echo("quit")
++        ctx.exit(3)
++
++    @cli.command()
++    @click.pass_context
++    def stop(ctx):
++        ctx.call_on_close(lambda: click.echo("close stop"))
++        click.echo("stop")
++        raise click.Abort()
++
++    result = runner.invoke(cli, ["quit"])
++    assert result.exit_code == 3
++    assert result.output == lines(
++        "before quit", "quit", "close quit", "teardown quit Exit(3)"
++    )
++
++    result = runner.invoke(cli, ["stop"])
++    assert result.exit_code == 1
++    assert result.output == lines(
++        "before stop", "stop", "teardown stop Abort", "close stop", "Aborted!"
++    )
++
++
++def test_constructor_hooks_first_and_return_values_ignored(runner):
++    def b0(ctx):
++        click.echo("b0")
++
++    def a0(ctx, result):
++        click.echo("a0")
++        return "changed"
++
++    def t0(ctx, exc):
++        click.echo("t0")
++        return "changed"
++
++    cli = click.Group(
++        "cli", before_subcommand=b0, after_subcommand=a0, teardown_subcommand=t0
++    )
++
++    def b1(ctx):
++        click.echo("b1")
++        return "changed"
++
++    def a1(ctx, result):
++        click.echo("a1")
++
++    def t1(ctx, exc):
++        click.echo("t1")
++
++    assert cli.before_subcommand(b1) is b1
++    assert cli.after_subcommand(a1) is a1
++    assert cli.teardown_subcommand(t1) is t1
++
++    @cli.command()
++    def run():
++        click.echo("run")
++        return 5
++
++    result = runner.invoke(cli, ["run"], standalone_mode=False)
++    assert result.exception is None, result.output
++    assert result.return_value == 5
++    assert result.output == lines("b0", "b1", "run", "a1", "a0", "t1", "t0")
++
++
++def test_context_invoke_forward_and_no_subcommand_do_not_run_hooks(runner):
++    @click.group()
++    def cli():
++        pass
++
++    @cli.before_subcommand
++    def before(ctx):
++        click.echo(f"before {ctx.info_name}")
++
++    @cli.after_subcommand
++    def after(ctx, result):
++        click.echo(f"after {ctx.info_name}")
++
++    @cli.teardown_subcommand
++    def teardown(ctx, exc):
++        click.echo(f"teardown {ctx.info_name} {describe(exc)}")
++
++    @cli.command()
++    def target():
++        click.echo("target")
++
++    @cli.command()
++    @click.pass_context
++    def caller(ctx):
++        ctx.invoke(target)
++        ctx.forward(target)
++
++    result = runner.invoke(cli, ["caller"])
++    assert result.exit_code == 0, result.output
++    assert result.output == lines(
++        "before caller", "target", "target", "after caller", "teardown caller ok"
++    )
++
++    @click.group(invoke_without_command=True)
++    def lone():
++        click.echo("lone")
++
++    lone.before_subcommand(lambda ctx: click.echo("lone-before"))
++    lone.after_subcommand(lambda ctx, result: click.echo("lone-after"))
++    lone.teardown_subcommand(lambda ctx, exc: click.echo("lone-teardown"))
++
++    @lone.command()
++    def sub():
++        click.echo("sub")
++
++    result = runner.invoke(lone, [])
++    assert result.exit_code == 0, result.output
++    assert result.output == "lone\n"
++
++
++def test_no_hook_runs_for_help_or_parse_errors(runner):
++    calls = []
++
++    def install(group):
++        group.before_subcommand(lambda ctx: calls.append(f"before {ctx.info_name}"))
++        group.after_subcommand(lambda ctx, r: calls.append(f"after {ctx.info_name}"))
++        group.teardown_subcommand(
++            lambda ctx, e: calls.append(f"teardown {ctx.info_name}")
++        )
++
++    @click.group()
++    def cli():
++        pass
++
++    install(cli)
++
++    @cli.command()
++    @click.option("--x", required=True)
++    def need(x):
++        calls.append("need")
++
++    @cli.command(no_args_is_help=True)
++    @click.argument("item", required=False)
++    def show(item):
++        calls.append("show")
++
++    result = runner.invoke(cli, ["need", "--help"])
++    assert result.exit_code == 0
++    assert "Usage: cli need [OPTIONS]" in result.output
++    result = runner.invoke(cli, ["need"])
++    assert result.exit_code == 2
++    assert result.output.splitlines()[-1] == "Error: Missing option '--x'."
++    result = runner.invoke(cli, ["need", "--x", "1", "extra"])
++    assert result.exit_code == 2
++    assert result.output.splitlines()[-1] == (
++        "Error: Got unexpected extra argument (extra)"
++    )
++    result = runner.invoke(cli, ["show"])
++    assert "Usage: cli show [OPTIONS] [ITEM]" in result.output
++    assert calls == []
++
++    @click.group(chain=True)
++    def chained():
++        pass
++
++    install(chained)
++
++    @chained.command()
++    def a():
++        calls.append("a")
++
++    @chained.command()
++    @click.option("--x", required=True)
++    def b(x):
++        calls.append("b")
++
++    result = runner.invoke(chained, ["a", "b"])
++    assert result.exit_code == 2
++    assert result.output.splitlines()[-1] == "Error: Missing option '--x'."
++    assert calls == []
++
++
++def test_command_collection_uses_own_hooks_only(runner):
++    src = click.Group("src")
++    src.before_subcommand(lambda ctx: click.echo("src-before"))
++    src.after_subcommand(lambda ctx, result: click.echo("src-after"))
++    src.teardown_subcommand(lambda ctx, exc: click.echo("src-teardown"))
++
++    @src.command()
++    def hello():
++        click.echo("hello")
++
++    def coll_before(ctx):
++        click.echo(f"coll-before {ctx.info_name}")
++
++    def coll_after(ctx, result):
++        click.echo(f"coll-after {ctx.info_name} {result!r}")
++
++    def coll_teardown(ctx, exc):
++        click.echo(f"coll-teardown {ctx.info_name} {describe(exc)}")
++
++    coll = click.CommandCollection(
++        "coll",
++        sources=[src],
++        before_subcommand=coll_before,
++        after_subcommand=coll_after,
++        teardown_subcommand=coll_teardown,
++    )
++
++    @coll.command()
++    def own():
++        click.echo("own")
++        return 5
++
++    result = runner.invoke(coll, ["hello"])
++    assert result.exit_code == 0, result.output
++    assert result.output == lines(
++        "coll-before hello", "hello", "coll-after hello None", "coll-teardown hello ok"
++    )
++
++    result = runner.invoke(coll, ["own"])
++    assert result.exit_code == 0, result.output
++    assert result.output == lines(
++        "coll-before own", "own", "coll-after own 5", "coll-teardown own ok"
++    )
++
++
++def test_shell_completion_and_to_info_dict_unaffected():
++    from click.shell_completion import ShellComplete
++
++    calls = []
++
++    @click.group()
++    def cli():
++        pass
++
++    cli.before_subcommand(lambda ctx: calls.append("before"))
++    cli.after_subcommand(lambda ctx, result: calls.append("after"))
++    cli.teardown_subcommand(lambda ctx, exc: calls.append("teardown"))
++
++    @cli.command()
++    @click.option("--name")
++    def run(name):
++        calls.append("run")
++
++    comp = ShellComplete(cli, {}, "cli", "_CLI_COMPLETE")
++    assert [c.value for c in comp.get_completions(["run"], "--")] == [
++        "--name",
++        "--help",
++    ]
++    comp = ShellComplete(cli, {}, "cli", "_CLI_COMPLETE")
++    assert [c.value for c in comp.get_completions([], "r")] == ["run"]
++    assert calls == []
++
++    def build(with_hooks):
++        kwargs = {}
++        if with_hooks:
++            kwargs = {
++                "before_subcommand": lambda ctx: None,
++                "after_subcommand": lambda ctx, result: None,
++                "teardown_subcommand": lambda ctx, exc: None,
++            }
++        group = click.Group("cli", **kwargs)
++        group.add_command(
++            click.Command("run", params=[click.Option(["--n"], type=int)])
++        )
++        return group
++
++    with click.Context(build(True)) as ctx:
++        with_hooks = ctx.to_info_dict()
++
++    with click.Context(build(False)) as ctx:
++        without_hooks = ctx.to_info_dict()
++
++    assert with_hooks == without_hooks

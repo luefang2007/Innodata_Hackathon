@@ -1,0 +1,495 @@
+diff --git a/tests/test_option_shorthand_expansions.py b/tests/test_option_shorthand_expansions.py
+new file mode 100644
+index 0000000..74e6d1a
+--- /dev/null
++++ b/tests/test_option_shorthand_expansions.py
+@@ -0,0 +1,489 @@
++import pytest
++
++import click
++
++
++def _make_quiet_cli():
++    @click.command()
++    @click.option("--log-level", default="info")
++    @click.option("--color/--no-color", default=True)
++    @click.shorthand("-q", "--log-level", "error", "--no-color", help="Quiet mode.")
++    def cli(log_level, color):
++        click.echo(f"log_level={log_level} color={color}")
++
++    return cli
++
++
++SINGLE_STR = "Shorthand expansion must be a sequence of strings, not a single string."
++
++
++@pytest.mark.parametrize(
++    ("name", "expansion", "exc_type", "message"),
++    [
++        ("q", ["--x"], ValueError, "Invalid shorthand name 'q'."),
++        ("--", ["--x"], ValueError, "Invalid shorthand name '--'."),
++        ("-", ["--x"], ValueError, "Invalid shorthand name '-'."),
++        ("-q=x", ["--x"], ValueError, "Invalid shorthand name '-q=x'."),
++        ("-q x", ["--x"], ValueError, "Invalid shorthand name '-q x'."),
++        (5, ["--x"], ValueError, "Invalid shorthand name 5."),
++        ("q", "--x", ValueError, "Invalid shorthand name 'q'."),
++        ("-q", "--x", TypeError, SINGLE_STR),
++        ("-q", "", TypeError, SINGLE_STR),
++        ("-q", ["--x", 1], TypeError, "Shorthand expansion tokens must be strings."),
++        ("-q", [1], TypeError, "Shorthand expansion tokens must be strings."),
++        ("-q", [], ValueError, "Shorthand '-q' must expand to at least one token."),
++        (
++            "--quiet",
++            (),
++            ValueError,
++            "Shorthand '--quiet' must expand to at least one token.",
++        ),
++    ],
++)
++def test_shorthand_validation_messages(name, expansion, exc_type, message):
++    from click import Shorthand
++
++    with pytest.raises(exc_type) as exc_info:
++        Shorthand(name, expansion)
++
++    assert type(exc_info.value) is exc_type
++    assert str(exc_info.value) == message
++
++
++def test_shorthand_attributes_repr_and_info_dict():
++    from click import Shorthand
++    from click import shorthand
++
++    sh = Shorthand("-q", ["--a", "b"], help="Quiet.")
++    assert sh.name == "-q"
++    assert sh.expansion == ("--a", "b")
++    assert sh.help == "Quiet."
++    assert sh.hidden is False
++    assert repr(sh) == "<Shorthand -q>"
++    assert sh.to_info_dict() == {
++        "name": "-q",
++        "expansion": ["--a", "b"],
++        "help": "Quiet.",
++        "hidden": False,
++    }
++
++    hidden = Shorthand("+x", ("--a",), hidden=True)
++    assert hidden.to_info_dict() == {
++        "name": "+x",
++        "expansion": ["--a"],
++        "help": None,
++        "hidden": True,
++    }
++
++    # The decorator validates when it is called, before decorating anything.
++    with pytest.raises(ValueError) as exc_info:
++        shorthand("-q")
++
++    assert str(exc_info.value) == "Shorthand '-q' must expand to at least one token."
++
++
++def test_registration_order_and_type_check():
++    from click import Shorthand
++
++    @click.command(shorthands=[Shorthand("-a", ["--x", "a"])])
++    @click.option("--x")
++    @click.shorthand("-b", "--x", "b")
++    @click.shorthand("-c", "--x", "c")
++    def cli(x):
++        pass
++
++    assert [sh.name for sh in cli.shorthands] == ["-a", "-b", "-c"]
++
++    click.shorthand("-d", "--x", "d")(cli)
++    assert [sh.name for sh in cli.shorthands] == ["-a", "-b", "-c", "-d"]
++
++    assert click.Command("plain").shorthands == []
++
++    with pytest.raises(TypeError) as exc_info:
++        click.Command("bad", shorthands=[Shorthand("-a", ["--x"]), "-q"])
++
++    assert str(exc_info.value) == "'shorthands' must contain only Shorthand instances."
++
++    with pytest.raises(TypeError) as exc_info:
++        click.Group("bad", shorthands=["-q"])
++
++    assert str(exc_info.value) == "'shorthands' must contain only Shorthand instances."
++
++
++def test_expansion_replaces_token_in_place(runner):
++    cli = _make_quiet_cli()
++
++    result = runner.invoke(cli, ["-q"])
++    assert result.exit_code == 0, result.output
++    assert result.output == "log_level=error color=False\n"
++
++    result = runner.invoke(cli, ["-q", "--log-level", "debug"])
++    assert result.output == "log_level=debug color=False\n"
++
++    result = runner.invoke(cli, ["--log-level", "-q"])
++    assert result.output == "log_level=-q color=True\n"
++
++    result = runner.invoke(cli, ["--", "-q"])
++    assert result.exit_code == 2
++    assert result.output == (
++        "Usage: cli [OPTIONS]\n"
++        "Try 'cli --help' for help.\n"
++        "\n"
++        "Error: Got unexpected extra argument (-q)\n"
++    )
++
++
++def test_trailing_option_value_and_expanded_positionals(runner):
++    @click.command()
++    @click.option("--log-level", default="info")
++    @click.argument("files", nargs=-1)
++    @click.shorthand("-L", "--log-level")
++    @click.shorthand("-r", "--", "-r", "-L")
++    @click.shorthand("-a", "-a")
++    def cli(log_level, files):
++        click.echo(f"{log_level} {files}")
++
++    result = runner.invoke(cli, ["-L", "debug"])
++    assert result.exit_code == 0, result.output
++    assert result.output == "debug ()\n"
++
++    result = runner.invoke(cli, ["-r", "x"])
++    assert result.exit_code == 0, result.output
++    assert result.output == "info ('-r', '-L', 'x')\n"
++
++    # The expansion of -a is not expanded again; it is processed as typed.
++    result = runner.invoke(cli, ["-a"])
++    assert result.exit_code == 2
++    assert result.output.splitlines()[-1] == "Error: No such option '-a'."
++
++
++def test_tokens_not_examined_as_options_are_not_expanded(runner):
++    @click.command()
++    @click.option("-v", "verbose", count=True)
++    @click.option("--log-level", default="info")
++    @click.shorthand("-q", "--log-level", "error")
++    def cli(verbose, log_level):
++        click.echo(f"{verbose} {log_level}")
++
++    result = runner.invoke(cli, ["-vq"])
++    assert result.exit_code == 2
++    assert result.output.splitlines()[-1] == "Error: No such option '-q'."
++
++    result = runner.invoke(cli, ["-q=x"])
++    assert result.exit_code == 2
++    assert result.output.splitlines()[-1] == "Error: No such option '-q'."
++
++    result = runner.invoke(cli, ["-v", "-q"])
++    assert result.output == "1 error\n"
++
++    @click.command(context_settings={"allow_interspersed_args": False})
++    @click.option("--log-level", default="info")
++    @click.argument("rest", nargs=-1)
++    @click.shorthand("-q", "--log-level", "error")
++    def cli2(log_level, rest):
++        click.echo(f"{log_level} {rest}")
++
++    result = runner.invoke(cli2, ["-q", "x", "-q"])
++    assert result.exit_code == 0, result.output
++    assert result.output == "error ('x', '-q')\n"
++
++
++def test_shorthand_prefix_is_recognised(runner):
++    @click.command()
++    @click.option("--log-level", default="info")
++    @click.shorthand("+q", "--log-level", "error")
++    def cli(log_level):
++        click.echo(log_level)
++
++    result = runner.invoke(cli, ["+q"])
++    assert result.exit_code == 0, result.output
++    assert result.output == "error\n"
++
++    result = runner.invoke(cli, [])
++    assert result.output == "info\n"
++
++
++def test_conflicts_raise_on_every_parse(runner):
++    from click import Shorthand
++
++    cmd = click.Command(
++        "cli",
++        params=[click.Option(["--color/--no-color"])],
++        shorthands=[Shorthand("--no-color", ["--color"])],
++    )
++    message = "Shorthand '--no-color' conflicts with an option of the same name."
++
++    result = runner.invoke(cmd, ["--help"])
++    assert type(result.exception) is ValueError
++    assert str(result.exception) == message
++
++    with pytest.raises(ValueError) as exc_info:
++        cmd.make_context("cli", [], resilient_parsing=True)
++
++    assert str(exc_info.value) == message
++
++    dup = click.Command(
++        "cli",
++        params=[click.Option(["--x"])],
++        shorthands=[
++            Shorthand("-a", ["--x", "1"]),
++            Shorthand("-b", ["--x", "2"]),
++            Shorthand("-a", ["--x", "3"]),
++        ],
++    )
++
++    with pytest.raises(ValueError) as exc_info:
++        dup.main([], standalone_mode=False)
++
++    assert str(exc_info.value) == "Shorthand '-a' is defined more than once."
++
++    norm_dup = click.Command(
++        "cli",
++        context_settings={"token_normalize_func": str.lower},
++        params=[click.Option(["--x"])],
++        shorthands=[Shorthand("-Q", ["--x", "1"]), Shorthand("-q", ["--x", "2"])],
++    )
++
++    with pytest.raises(ValueError) as exc_info:
++        norm_dup.main([], standalone_mode=False)
++
++    assert str(exc_info.value) == "Shorthand '-q' is defined more than once."
++
++    def build(context_settings):
++        @click.command(context_settings=context_settings)
++        @click.option("--quiet", is_flag=True)
++        @click.shorthand("--QUIET", "--quiet")
++        def cli(quiet):
++            click.echo(f"quiet={quiet}")
++
++        return cli
++
++    result = runner.invoke(build({}), ["--QUIET"])
++    assert result.exit_code == 0, result.output
++    assert result.output == "quiet=True\n"
++
++    result = runner.invoke(build({"token_normalize_func": str.lower}), [])
++    assert type(result.exception) is ValueError
++    assert str(result.exception) == (
++        "Shorthand '--QUIET' conflicts with an option of the same name."
++    )
++
++
++def test_group_tokens_reach_subcommand(runner):
++    @click.group()
++    @click.option("--profile", default="dev")
++    @click.shorthand("-D", "--profile", "prod", "deploy")
++    @click.shorthand("-X", "deploy", "-n")
++    def tool(profile):
++        click.echo(f"profile={profile}")
++
++    @tool.command()
++    @click.option("--dry-run", is_flag=True)
++    @click.shorthand("-n", "--dry-run")
++    def deploy(dry_run):
++        click.echo(f"dry_run={dry_run}")
++
++    result = runner.invoke(tool, ["-D"])
++    assert result.exit_code == 0, result.output
++    assert result.output == "profile=prod\ndry_run=False\n"
++
++    result = runner.invoke(tool, ["-D", "-n"])
++    assert result.exit_code == 0, result.output
++    assert result.output == "profile=prod\ndry_run=True\n"
++
++    result = runner.invoke(tool, ["-X"])
++    assert result.exit_code == 0, result.output
++    assert result.output == "profile=dev\ndry_run=True\n"
++
++
++def test_expanded_values_are_commandline_source(runner):
++    @click.command()
++    @click.option("--level", envvar="LEVEL", default="info")
++    @click.option("--name", prompt=True)
++    @click.option("--old", deprecated=True, default="o")
++    @click.shorthand("-q", "--level", "error", "--name", "bob", "--old", "x")
++    @click.pass_context
++    def cli(ctx, level, name, old):
++        level_src = ctx.get_parameter_source("level").name
++        name_src = ctx.get_parameter_source("name").name
++        click.echo(f"{level} {level_src} {name} {name_src} {old}")
++
++    result = runner.invoke(
++        cli, ["-q"], env={"LEVEL": "warn"}, default_map={"level": "dm"}
++    )
++    assert result.exit_code == 0, result.output
++    assert result.stdout == "error COMMANDLINE bob COMMANDLINE x\n"
++    assert result.stderr == "DeprecationWarning: The option 'old' is deprecated.\n"
++
++    result = runner.invoke(cli, ["--name", "al"], env={"LEVEL": "warn"})
++    assert result.exit_code == 0, result.output
++    assert result.stdout == "warn ENVIRONMENT al COMMANDLINE o\n"
++    assert result.stderr == ""
++
++    result = runner.invoke(
++        cli, [], input="zed\n", env={"LEVEL": None}, default_map={"level": "dm"}
++    )
++    assert result.exit_code == 0, result.output
++    assert result.stdout == "Name: zed\ndm DEFAULT_MAP zed PROMPT o\n"
++
++
++def test_multiple_and_count_accumulate_in_token_order(runner):
++    @click.command()
++    @click.option("--tag", multiple=True)
++    @click.option("-v", "verbose", count=True)
++    @click.shorthand("-T", "--tag", "a", "-v", "--tag", "b")
++    def cli(tag, verbose):
++        click.echo(f"{tag} {verbose}")
++
++    result = runner.invoke(cli, ["--tag", "x", "-T", "-v", "--tag", "y"])
++    assert result.exit_code == 0, result.output
++    assert result.output == "('x', 'a', 'b', 'y') 2\n"
++
++    result = runner.invoke(cli, ["-T", "-T"])
++    assert result.output == "('a', 'b', 'a', 'b') 2\n"
++
++
++def test_shorthand_drops_help_option_name(runner):
++    @click.command(context_settings={"help_option_names": ["-h", "--help"]})
++    @click.option("--host", default="localhost")
++    @click.shorthand("-h", "--host", "0.0.0.0", help="Listen on all interfaces.")
++    @click.shorthand("--debug-all", "--host", "127.0.0.1", hidden=True)
++    def serve(host):
++        click.echo(f"host={host}")
++
++    ctx = click.Context(serve, help_option_names=["-h", "--help"])
++    assert serve.get_help_option_names(ctx) == ["--help"]
++
++    result = runner.invoke(serve, ["-h"])
++    assert result.exit_code == 0, result.output
++    assert result.output == "host=0.0.0.0\n"
++
++    result = runner.invoke(serve, ["--debug-all"])
++    assert result.output == "host=127.0.0.1\n"
++
++    result = runner.invoke(serve, ["--help"], terminal_width=80)
++    assert result.exit_code == 0, result.output
++    assert result.output == (
++        "Usage: serve [OPTIONS]\n"
++        "\n"
++        "Options:\n"
++        "  --host TEXT\n"
++        "  --help       Show this message and exit.\n"
++        "\n"
++        "Shorthands:\n"
++        "  -h  Listen on all interfaces.  [expands to: --host 0.0.0.0]\n"
++    )
++
++
++def test_token_normalize_func_applies_to_shorthands(runner):
++    @click.command(context_settings={"token_normalize_func": str.lower})
++    @click.option("--log-level", default="info")
++    @click.shorthand("-q", "--log-level", "error")
++    @click.shorthand("--LOUD", "--log-level", "debug")
++    def cli(log_level):
++        click.echo(log_level)
++
++    result = runner.invoke(cli, ["-Q"])
++    assert result.exit_code == 0, result.output
++    assert result.output == "error\n"
++
++    result = runner.invoke(cli, ["--loud"])
++    assert result.exit_code == 0, result.output
++    assert result.output == "debug\n"
++
++
++def test_help_page_shorthands_section(runner):
++    result = runner.invoke(_make_quiet_cli(), ["--help"], terminal_width=80)
++    assert result.exit_code == 0, result.output
++    assert result.output == (
++        "Usage: cli [OPTIONS]\n"
++        "\n"
++        "Options:\n"
++        "  --log-level TEXT\n"
++        "  --color / --no-color\n"
++        "  --help                Show this message and exit.\n"
++        "\n"
++        "Shorthands:\n"
++        "  -q  Quiet mode.  [expands to: --log-level error --no-color]\n"
++    )
++
++    @click.group()
++    @click.option("--profile", default="dev", help="Profile name.")
++    @click.shorthand("-D", "--profile", "prod", "deploy", help="Deploy to prod.")
++    @click.shorthand("-H", "--profile", "h", hidden=True)
++    @click.shorthand("-N", "--profile", "my env")
++    def tool(profile):
++        pass
++
++    @tool.command()
++    @click.shorthand("-z", "--help", hidden=True)
++    def deploy():
++        """Deploy it."""
++
++    result = runner.invoke(tool, ["--help"], terminal_width=80)
++    assert result.exit_code == 0, result.output
++    assert result.output == (
++        "Usage: tool [OPTIONS] COMMAND [ARGS]...\n"
++        "\n"
++        "Options:\n"
++        "  --profile TEXT  Profile name.\n"
++        "  --help          Show this message and exit.\n"
++        "\n"
++        "Shorthands:\n"
++        "  -D  Deploy to prod.  [expands to: --profile prod deploy]\n"
++        "  -N  [expands to: --profile 'my env']\n"
++        "\n"
++        "Commands:\n"
++        "  deploy  Deploy it.\n"
++    )
++
++    result = runner.invoke(tool, ["deploy", "--help"], terminal_width=80)
++    assert result.exit_code == 0, result.output
++    assert result.output == (
++        "Usage: tool deploy [OPTIONS]\n"
++        "\n"
++        "  Deploy it.\n"
++        "\n"
++        "Options:\n"
++        "  --help  Show this message and exit.\n"
++    )
++
++
++def test_command_to_info_dict_shorthands():
++    from click import Shorthand
++
++    cmd = click.Command(
++        "cli",
++        params=[click.Option(["--x"])],
++        shorthands=[
++            Shorthand("-a", ["--x", "1"], help="A."),
++            Shorthand("-b", ("--x",), hidden=True),
++        ],
++    )
++    expected = [
++        {"name": "-a", "expansion": ["--x", "1"], "help": "A.", "hidden": False},
++        {"name": "-b", "expansion": ["--x"], "help": None, "hidden": True},
++    ]
++
++    ctx = click.Context(cmd)
++    assert cmd.to_info_dict(ctx)["shorthands"] == expected
++    assert ctx.to_info_dict()["command"]["shorthands"] == expected
++
++    plain = click.Command("plain", params=[click.Option(["--x"])])
++    info = plain.to_info_dict(click.Context(plain))
++    assert sorted(info) == [
++        "deprecated",
++        "epilog",
++        "help",
++        "hidden",
++        "name",
++        "params",
++        "short_help",
++    ]
++
++    group = click.Group("grp", shorthands=[Shorthand("-g", ["sub"])])
++    group_info = group.to_info_dict(click.Context(group))
++    assert group_info["shorthands"] == [
++        {"name": "-g", "expansion": ["sub"], "help": None, "hidden": False}
++    ]
++    assert group_info["commands"] == {}
