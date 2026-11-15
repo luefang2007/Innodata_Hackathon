@@ -1,7 +1,8 @@
-"""Prompt text and JSON schemas for the three model calls: design, implement, repair."""
+"""Prompt text and JSON schemas for the model calls: design, implement, repair, deepen."""
 from __future__ import annotations
 
 import json
+import re
 from pathlib import Path
 
 from . import config, repo
@@ -105,8 +106,15 @@ def repo_context(base_dir: Path, upstream_log: str) -> str:
     return "\n".join(parts)
 
 
-def design(cell: dict, siblings: list[str]) -> str:
+def design(cell: dict, siblings: list[str], depth: str = "") -> str:
+    """`depth` is a mechanism text from matrix.DEPTH. Empty leaves the prompt byte-for-byte as it was,
+    which keeps the recorded answers of earlier runs replayable from the response cache."""
     sib = "\n".join(f"- {s}" for s in siblings) or "- (none)"
+    extra = (f"\n\nWhere the difficulty must come from - {depth}\nBuild the feature around this mechanism "
+             f"from the start. Adding more independent rules is not enough: a solver that gets each rule "
+             f"right still passes. At least half of the numbered rules must only matter in combination with "
+             f"another rule or with existing click behaviour, and every such combination is stated as an "
+             f"outcome in instruction.md.") if depth else ""
     return f"""Design ONE new feature task for click.
 
 Variation cell assigned to this task (the batch uses a different cell for every task):
@@ -127,10 +135,13 @@ Write the complete instruction.md with these sections:
 ## Compatibility  (what must stay unchanged)
 
 The gold implementation should be roughly 60-200 lines of library code. Choose a feature whose rules
-leave no room for interpretation: when two behaviours are possible, the spec picks one explicitly."""
+leave no room for interpretation: when two behaviours are possible, the spec picks one explicitly.{extra}"""
 
 
-def implement(design_obj: dict, spec: str, test_path: str) -> str:
+def implement(design_obj: dict, spec: str, test_path: str, combined: bool = False) -> str:
+    """`combined` goes with a design that was asked for depth: the tests must then exercise rules together."""
+    more = ("\n- Because this feature is built around combined behaviour: at least half of the tests must each "
+            "depend on two or more rules at once and assert the complete, exact outcome.") if combined else ""
     return f"""Implement the task below: the gold patch and the test file.
 
 Task design (for you only):
@@ -159,7 +170,138 @@ Return:
   * Deterministic and OS-independent; pass the width explicitly when formatting matters, e.g.
     `runner.invoke(cli, args, terminal_width=80)` (extra keyword arguments reach the Context).
 - instruction_md: return "" unless you must clarify the spec so that it states something the tests need.
-- notes: one or two sentences on what you implemented."""
+- notes: one or two sentences on what you implemented.{more}"""
+
+
+def post_image(gold_patch: str, limit: int = 60000) -> str:
+    """The regions the gold changed, as they are NOW (context and added lines of every hunk).
+
+    A delta is written against the gold-applied source, so its search blocks must be copied from text
+    that exists there: these regions for changed code, the original source for everything else."""
+    out: list[str] = []
+    path = ""
+    for line in gold_patch.splitlines():
+        if line.startswith("+++ "):
+            path = line[6:] if line.startswith("+++ b/") else line[4:]
+        elif line.startswith("@@"):
+            m = re.search(r"\+(\d+)", line)
+            out.append(f"\n----- {path}, from line {m.group(1) if m else '?'} (current content) -----")
+        elif line.startswith(("diff --git", "index ", "--- ", "new file", "deleted file", "similarity ",
+                              "rename ", "\\")):
+            continue
+        elif line.startswith(("+", " ")):
+            out.append(line[1:])
+        elif line == "":
+            out.append("")
+    return "\n".join(out).strip("\n")[:limit]
+
+
+def _too_easy(probe: dict, mechanism: str) -> tuple[str, str]:
+    depth = (f"\nWhere the difficulty must come from - {mechanism}\nAdding more independent rules is not "
+             f"enough: a solver that gets each rule right still passes. Build the rework around this "
+             f"mechanism.\n") if mechanism else ""
+    failed = probe.get("failed_f2p") or {}
+    if failed:
+        fail_note = ("\nFeature tests the weaker model failed at least once - keep and build on this kind of "
+                     "difficulty:\n" + "\n".join(f"- {t} ({n}x)" for t, n in list(failed.items())[:12]))
+    else:
+        fail_note = "\nIt did not fail a single feature test."
+    return depth, fail_note
+
+
+def _current_task(spec: str, gold_patch: str, test_content: str, test_path: str) -> str:
+    return f"""Current instruction.md:
+<<<SPEC
+{spec}
+SPEC>>>
+
+Current implementation. The original click source is in the system prompt; these are the regions the
+current solution changed, shown as they are NOW (everything else is still the original source):
+<<<CURRENT
+{post_image(gold_patch)}
+CURRENT>>>
+
+Current test file `{test_path}`:
+<<<TESTS
+{test_content[:60000]}
+TESTS>>>"""
+
+
+def _delta_format(test_path: str) -> str:
+    return f"""- edits: search/replace edits against the CURRENT state shown above. `path` is one of
+  * a file under src/click/ - the `search` text must exist in that file as it is NOW: copy it from the
+    regions above where the current solution changed the file, and from the original source elsewhere;
+  * `{test_path}` - the test file above;
+  * `instruction.md` - the text above.
+  Every `search` is copied verbatim (including indentation), matches exactly once, and stays small
+  (3-15 lines) but unique. To add text at the end of the test file or of instruction.md, use an empty
+  `search`: the `replace` text is appended.
+- test_file_content: "" (always empty in this format).
+- instruction_md: "" (always empty in this format)."""
+
+
+def deepen_delta(spec: str, gold_patch: str, test_content: str, probe: dict, test_path: str,
+                 mechanism: str = "") -> str:
+    """Escalation as a delta: the model returns only what changes, as edits against the current task.
+
+    The full rewrite (`deepen`) re-emits the spec, every edit and the whole test file after long
+    reasoning; three of five such answers were cut off at the output limit in the first jury run."""
+    depth, fail_note = _too_easy(probe, mechanism)
+    return f"""This task passed validation but is too easy: a smaller model that saw only instruction.md and the
+click source solved it in {probe['solved_strict']} of {probe['k']} one-shot attempts.{fail_note}
+
+Make the task substantially harder to implement correctly, while staying fair and realistic. Keep the
+feature, its public names and everything that already works: extend it in depth, do not replace it.
+{depth}
+Do all of these:
+1. Add 4-6 behaviour rules that only matter when the feature meets existing click behaviour or its own
+   other rules: precedence when two rules apply at once, interaction with value sources (command line,
+   environment variables, default_map, defaults, prompts), nested and chained commands with context
+   inheritance, resilient parsing and shell completion, the order of errors when several rules are
+   violated together, and corner cases of the existing functions you change that must keep working.
+2. State the new rules in instruction.md as observable outcomes, invariants and exact messages. Do not
+   describe your algorithm, the order of internal checks, or which internal function to modify; where an
+   order is observable, state it as an outcome ("when both A and B hold, the result is C").
+3. Add 6-10 tests. Each new test depends on two or more rules at once (at least one of them new) and
+   asserts exact output. Every expected value must follow from rules stated in instruction.md.
+4. Taken together, the implementation must change existing click code paths in at least two modules.
+
+Fairness is non-negotiable: a careful engineer must still be able to implement everything from
+instruction.md alone. Never rely on behaviour the text does not state.
+
+{_current_task(spec, gold_patch, test_content, test_path)}
+
+Return ONLY what changes; never repeat the parts of the task that stay as they are:
+{_delta_format(test_path)}
+- notes: one or two sentences on what you added.
+Change or remove an existing rule or test only where a new rule makes it wrong."""
+
+
+def repair_delta(spec: str, gold_patch: str, test_content: str, prev: dict, failures: str,
+                 test_path: str) -> str:
+    """Repair of a failed delta. The delta is re-applied from scratch to the same (unchanged) task."""
+    return f"""Your edits to deepen this task failed the automatic validation. They were applied on top of the
+current task, and the current task has NOT changed: what is shown below is still the state before
+your edits.
+
+{_current_task(spec, gold_patch, test_content, test_path)}
+
+Your previous edits:
+<<<PREVIOUS
+{json.dumps(prev.get("edits", []), indent=1)[:60000]}
+PREVIOUS>>>
+
+Validation failures:
+<<<FAILURES
+{failures}
+FAILURES>>>
+
+Fix the problems and return the complete set of edits again, in the same format (the edits are applied
+to the current state shown above, not on top of your previous edits):
+{_delta_format(test_path)}
+- notes: one or two sentences on what you fixed.
+If a test asserted something instruction.md does not state, remove that assertion or add the statement
+to instruction.md. Keep the feature itself the same."""
 
 
 def deepen(spec: str, gold_patch: str, test_content: str, probe: dict, test_path: str,

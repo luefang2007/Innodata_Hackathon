@@ -164,6 +164,38 @@ answers logged by the earlier probe.
 The same juror is available stand-alone: `python -m taskfactory probe <packages>`. It solved 14 of 15
 one-shot attempts on our single-feature tasks, which is the measurement that motivated the jury.
 
+### After the event: deepening as a delta (not yet run against a live model)
+
+Written on 2026-11-14 and 15, after the submission, from what run 2 showed. It is on its own branch
+and has been tested offline only.
+
+- **Deepening returns only the changes.** In run 2 the deepen call re-emitted the whole task (spec, every
+  edit, the full test file) after long reasoning; three of five answers stopped at exactly 80,000 output
+  tokens, and the two that finished used about 70,000. Now the answer is a list of search/replace edits
+  against the current task: the source with the gold applied, the test file and `instruction.md`. The
+  pipeline applies them on top of the current gold and rebuilds the gold as one diff against the base.
+  The valid task is never modified, so a failed delta still cannot cost a task.
+- **Less reasoning, and one retry.** The deepen call uses `medium` effort, and an answer that is cut off
+  is retried once with `low`.
+- **Depth at design time (optional).** `FACTORY_DESIGN_DEPTH=1` puts the shape's first depth mechanism
+  into the design prompt, so the first draft is already deep; the jury's deepen step then starts from the
+  second mechanism. It is off by default because it changes the design prompt, and the recorded answers
+  of earlier runs then no longer replay from the response cache.
+
+| Switch | Default | Meaning |
+|---|---|---|
+| `FACTORY_DEEPEN_MODE` | `delta` | `rewrite` restores the behaviour of run 2 exactly |
+| `FACTORY_DEEPEN_EFFORT` | `medium` | reasoning effort of the deepen call; empty means the generation effort |
+| `FACTORY_DEEPEN_RETRY_EFFORT` | `low` | effort of the one retry after a cut-off answer; empty means no retry |
+| `FACTORY_DESIGN_DEPTH` | `0` | `1` asks for depth in the design itself |
+
+`python selftest_deepen.py` checks all of this without a model or a key (21 checks, about 75 s): a
+delta built on a real package clears every gate, bad deltas come back as text for the repair prompt, and
+the jury loop with a stubbed model retries a cut-off answer and returns the harder candidate. Replaying
+run 1's recorded answers through the changed code gives the same four packages with the same numbers as
+before. What is not known yet is what matters most: whether a live model writes deltas that apply, and
+whether they make tasks harder.
+
 ## Other difficulty and variation tools
 
 - `compose` (above) is a second difficulty dial: span k asks for k validated features in one change.
