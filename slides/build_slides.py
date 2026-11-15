@@ -17,6 +17,7 @@ import argparse
 import copy
 import json
 import re
+import sys
 from pathlib import Path
 
 from pptx import Presentation
@@ -28,6 +29,9 @@ from pptx.oxml.xmlchemy import OxmlElement
 from pptx.util import Inches, Pt
 
 ROOT = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(ROOT / "factory"))
+from taskfactory.matrix import AFFINITY, MODULES, SHAPES  # noqa: E402  (the matrix the planner really uses)
+
 BLUE, INK, CARD, WHITE = "0070C0", "474747", "F1F2F2", "FFFFFF"
 GREY, PALE, EDGE, DARK = "9CA3AF", "9CC3E6", "C9CED6", "111827"
 FONT, MONO, SYMBOL = "League Spartan", "Consolas", "Segoe UI Symbol"
@@ -41,6 +45,28 @@ FEATURE = {
     104: "Option shorthands expanded by the parser",
     105: "Numbered menus for Choice prompts",
 }
+
+# Row captions of the variation matrix (the module keys come from taskfactory.matrix).
+AREA = {
+    "parser": "argv tokens and options",
+    "types": "value conversion",
+    "core": "Context, Command, Group",
+    "help": "help pages",
+    "termui": "prompts, CliRunner",
+    "completion": "shell completion",
+}
+
+# The eight local gates, in the order the pipeline runs them and the demo prints them.
+CHECKS = [
+    ("HYGIENE", "The request leaks no solution, never mentions the tests and has no authoring tells."),
+    ("GROUNDING", "The reference solution extends existing click modules."),
+    ("GOLD PASSES", "Every new test passes with the reference solution."),
+    ("BASE FAILS", "At least 6 new tests fail on click 8.5.1; at most 1 in 5 pass without the feature."),
+    ("REGRESSION", "Existing tests that run the changed lines (coverage map, up to 80) pass before and after."),
+    ("MUTATION", "Up to 12 bugs are injected into the reference; the tests must catch at least 70%."),
+    ("FAIRNESS", "Every word of an asserted message appears in the request, the test's inputs or click's source."),
+    ("NOVELTY", "The new tests fail on click's latest upstream main: the feature is not there yet."),
+]
 
 
 # ---------------------------------------------------------------- evidence
@@ -65,6 +91,7 @@ def evidence(sub: Path) -> dict:
             "iid": iid, "number": r["number"], "f2p": r["n_f2p"], "p2p": r["n_p2p"],
             "killed": r["mutation"]["killed"], "mutants": r["mutation"]["n"],
             "cell": f"{r['cell']['module']} × {r['cell']['shape']}",
+            "module": r["cell"]["module"], "shape": r["cell"]["shape"],
             "oracle": float(m.group(1)), "nop": float(m.group(2)),
             "first": first, "final": final, "solved": c["container_resolved"], "graded": c["graded"],
             "agree": c["agree"], "attempts": c["attempts"],
@@ -81,6 +108,9 @@ def evidence(sub: Path) -> dict:
     assert all(t["oracle"] == 1.0 and t["nop"] == 0.0 for t in tasks), "a self-check baseline is off"
     assert all(t["agree"] for t in tasks), "container and host grading disagree"
     assert ev["valid"] == ev["requested"] == len(tasks)
+    assert all(t["shape"] in AFFINITY[t["module"]] for t in tasks), "a task sits in a cell the planner forbids"
+    assert len({t["module"] for t in tasks}) == len({t["shape"] for t in tasks}) == len(tasks), "a cell repeats"
+    ev["mean_sim"] = float(re.search(r"Max similarity [\d.]+, mean ([\d.]+)", div).group(1))
     return ev
 
 
@@ -171,9 +201,10 @@ def place(slide, names, top: float, height: float) -> None:
 
 
 def clone(slide, src, name: str, left: float, top: float, width: float, height: float):
+    """Copy a shape (or a saved shape element) onto `slide` under a new name and geometry."""
     tree = slide.shapes._spTree
     nid = max(int(e.get("id")) for e in tree.iter(qn("p:cNvPr"))) + 1
-    el = copy.deepcopy(src._element)
+    el = copy.deepcopy(getattr(src, "_element", src))
     c = el.find(".//" + qn("p:cNvPr"))
     c.set("id", str(nid))
     c.set("name", name)
@@ -288,9 +319,9 @@ def draw_flow(slide, top: float) -> None:
     y = top + 0.46
     steps = [("1  Plan", ["variation matrix:", "area × kind of change"], False),
              ("2  Write", ["Opus 5.5: feature request,", "reference solution, tests"], False),
-             ("3  Check", ["8 local checks on the", "base and the reference"], False),
-             ("4  Measure", ["solver jury: Haiku 5.5", "attempts it 3 times"], True),
-             ("5  Package", ["Harbor task,", "ready to grade"], False)]
+             ("3  Check", ["8 local checks", "no Docker, ~30 s per task"], False),
+             ("4  Measure", ["solver jury: Haiku 5.5", "3 tries, ships at ≤ 1/3"], True),
+             ("5  Package", ["Harbor task: request,", "solution, tests, Dockerfile"], False)]
     centers = []
     for i, (name, sub, ours) in enumerate(steps):
         x = x0 + i * (w + gap)
@@ -307,15 +338,46 @@ def draw_flow(slide, top: float) -> None:
     stroke(slide, "repair-1", xs, yb, xs, yh, "8A8F98")
     stroke(slide, "repair-2", xs, yh, xe, yh, "8A8F98")
     stroke(slide, "repair-3", xe, yh, xe, yb + 0.02, "8A8F98", arrow=True)
-    textbox(slide, "repair-label", xe + 0.1, yh + 0.02, 3.6, 0.2,
-            [("a check failed: repair with the exact report", 10, "6B7280", False)])
+    textbox(slide, "repair-label", xe + 0.1, yh + 0.02, 4.0, 0.2,
+            [("a check failed: repair with the exact report (≤ 3 attempts)", 10, "6B7280", False)])
     # deepen: Measure -> Write
     xs, xe, yh = centers[3], centers[1] - 0.3, yb + 0.58
     stroke(slide, "deepen-1", xs, yb, xs, yh, BLUE, 2)
     stroke(slide, "deepen-2", xs, yh, xe, yh, BLUE, 2)
     stroke(slide, "deepen-3", xe, yh, xe, yb + 0.02, BLUE, 2, arrow=True)
-    textbox(slide, "deepen-label", xe + 0.1, yh + 0.02, 6.2, 0.2,
-            [("solved more than once: deepen the task, then check and measure it again", 10, BLUE, True)])
+    textbox(slide, "deepen-label", xe + 0.1, yh + 0.02, 8.0, 0.2,
+            [("solved more than once: deepen the task, then check and measure it again (≤ 2 rounds)", 10, BLUE,
+              True)])
+
+
+def draw_matrix(slide, rows, left: float, top: float, width: float) -> float:
+    """The variation matrix as a grid: one row per area of click, one column per kind of change. The cells
+    the seed picked are blue and carry the task number; other allowed pairs are white; a dash marks a pair
+    the planner never picks. Returns the bottom edge."""
+    label_w, head_h, pitch, cell_h, gap = 2.15, 0.24, 0.255, 0.215, 0.06
+    col_w = (width - label_w) / len(SHAPES)
+    picked = {(t["module"], t["shape"]): t["number"] for t in rows}
+    for j, shape in enumerate(SHAPES):
+        textbox(slide, f"matrix-col{j + 1}", left + label_w + j * col_w, top, col_w, head_h,
+                [(shape, 10, BLUE, True)], align=PP_ALIGN.CENTER, anchor=MSO_ANCHOR.BOTTOM)
+    y = top + head_h + 0.06
+    for i, module in enumerate(MODULES):
+        textbox(slide, f"matrix-row{i + 1}", left, y, label_w, cell_h,
+                [[(module, 10.5, DARK, True), (f"  {AREA[module]}", 9, "6B7280", False)]],
+                anchor=MSO_ANCHOR.MIDDLE)
+        for j, shape in enumerate(SHAPES):
+            x = left + label_w + j * col_w + gap / 2
+            name = f"matrix-{module}-{shape}"
+            if (module, shape) in picked:
+                put_text(box(slide, name, x, y, col_w - gap, cell_h, BLUE, radius=0.25),
+                         [(f"{picked[module, shape]:04d}", 10, WHITE, True)])
+            elif shape in AFFINITY[module]:
+                box(slide, name, x, y, col_w - gap, cell_h, WHITE, EDGE, radius=0.25)
+            else:
+                textbox(slide, name, x, y, col_w - gap, cell_h, [("–", 10, GREY, False)],
+                        align=PP_ALIGN.CENTER, anchor=MSO_ANCHOR.MIDDLE)
+        y += pitch
+    return y
 
 
 # ---------------------------------------------------------------- the five slides
@@ -335,7 +397,9 @@ def build(template: Path, out: Path, sub: Path, team: str, members: str) -> dict
 
     prs = Presentation(str(template))
     s1, s2, s3, s4, s5 = prs.slides
-    card_src, card_text_src = by_name(s2, "card1"), by_name(s2, "card1-text")      # prototypes for new cards
+    # prototypes for new cards, saved before slide 2 rewrites the originals
+    card_src = copy.deepcopy(by_name(s2, "card1")._element)
+    card_text_src = copy.deepcopy(by_name(s2, "card1-text")._element)
 
     # 1 ---- title
     fill(by_name(s1, "title"), ["Solver-in-the-Loop Task Factory"])
@@ -352,54 +416,73 @@ def build(template: Path, out: Path, sub: Path, team: str, members: str) -> dict
         f"{len(files)} files; {hard['f2p']} new tests must pass and {hard['p2p']} existing tests must stay green."],
         line=130000)
 
-    # 2 ---- how we generate a task: input, the pipeline as a diagram, what changes
-    flow_top = 3.18
-    place(s2, ("card1", "card1-text"), 2.06, 1.0)
+    # 2 ---- how we generate a task: the pipeline as a diagram, then the input and the variation matrix
+    flow_top, row_top, row_h, in_w = 2.06, 4.40, 2.45, 3.85
+    mx_left = 0.78 + in_w + 0.16
+    mx_w = 0.78 + 11.78 - mx_left
     place(s2, ("card2",), flow_top, 2.2)
     place(s2, ("card2-text",), flow_top + 0.12, 0.3)
-    place(s2, ("card3", "card3-text"), 5.50, 1.12)
-    fill(by_name(s2, "card1-text"), [
-        f"pallets/click at tag 8.5.1 (commit {ev['base'][:8]}) and a seed. The seed picks {len(rows)} cells "
-        f"of a variation matrix: six areas of click by five kinds of behavior."], base={"size": 14})
     fill(by_name(s2, "card2-text"), [])                                      # keep the label; the diagram follows
     draw_flow(s2, flow_top)
-    fill(by_name(s2, "card3-text"), [
-        f"Task 0101 (lifecycle hooks): call order, exceptions and re-entrancy across {len(files)} files. "
-        f"Task 0103 (shell completion): splitting a half-typed command line. Measured overlap between any two "
-        f"tasks: at most {ev['max_sim']:.2f} on a scale from 0 to 1."], base={"size": 14})
+    for name, left, width in (("card1", 0.78, in_w), ("card3", mx_left, mx_w)):
+        sh = by_name(s2, name)
+        sh.left, sh.top, sh.width, sh.height = Inches(left), Inches(row_top), Inches(width), Inches(row_h)
+    t1 = by_name(s2, "card1-text")
+    t1.left, t1.top, t1.width, t1.height = Inches(1.11), Inches(row_top + 0.12), Inches(in_w - 0.6), \
+        Inches(row_h - 0.24)
+    t1.text_frame.vertical_anchor = MSO_ANCHOR.TOP
+    fill(t1, [
+        [("pallets/click", {"b": True}), (f" at tag 8.5.1 (commit {ev['base'][:8]}) and a seed.", None)],
+        {"segs": [(f"The seed picks {len(rows)} cells of the matrix; no area and no kind of change repeats.",
+                   None)], "before": 600},
+        {"segs": [("Each design states 6 to 9 numbered rules, at least 2 of them about existing click features.",
+                   None)], "before": 600},
+    ], base={"size": 12}, line=110000)
+    t3 = by_name(s2, "card3-text")
+    t3.left, t3.top, t3.width, t3.height = Inches(mx_left + 0.33), Inches(row_top + 0.06), Inches(mx_w - 0.6), \
+        Inches(0.3)
+    fill(t3, [])                                                             # keep the label; the grid follows
+    legend = [("■ ", 11, BLUE, False, SYMBOL), (f"seed {ev['seed']}'s tasks", 9, "6B7280", False),
+              ("     □ ", 11, GREY, False, SYMBOL), ("other allowed pairs", 9, "6B7280", False),
+              ("     – ", 10, GREY, False), ("never picked", 9, "6B7280", False)]
+    textbox(s2, "matrix-legend", mx_left + mx_w - 0.3 - 4.6, row_top + 0.10, 4.6, 0.24, [legend],
+            align=PP_ALIGN.RIGHT)
+    bottom = draw_matrix(s2, rows, mx_left + 0.33, row_top + 0.38, mx_w - 0.63)
+    textbox(s2, "matrix-overlap", mx_left + 0.33, bottom + 0.02, mx_w - 0.63, 0.2,
+            [[("Measured overlap between any two tasks: ", 10, INK, False),
+              (f"at most {ev['max_sim']:.2f}", 10, BLUE, True),
+              (f", mean {ev['mean_sim']:.2f} (0 = nothing shared, 1 = identical).", 10, INK, False)]])
 
-    # 3 ---- live demo
-    place(s3, ("demo-card", "demo-bar", "demo-text"), 2.08, 2.42)
+    # 3 ---- live demo: the command, then the eight checks its log prints
+    place(s3, ("demo-card", "demo-bar", "demo-text"), 2.08, 1.95)
     code = {"font": MONO, "size": 13.5}
     dim = {"font": MONO, "size": 13.5, "color": GREY}
     fill(by_name(s3, "demo-text"), [
-        {"segs": [("Entry point: one script. The model's recorded answers are replayed, so the demo spends "
-                   "nothing; every check runs live.", {"size": 16})], "line": 125000},
+        {"segs": [("One script: recorded model answers are replayed (no API spend), every check runs live.",
+                   {"size": 16})], "line": 125000},
         {"segs": [("PS> ", dim), (".\\demo", {"font": MONO, "size": 17, "b": True, "color": "7CC4FF"})],
-         "line": 130000, "before": 900},
+         "line": 130000, "before": 700},
         {"segs": [("1  generate   ", dim),
                   ("python -m taskfactory generate --n 5 --seed 1 --out ../demo/generated_tasks", code)],
-         "line": 125000, "before": 700},
+         "line": 125000, "before": 500},
         {"segs": [("2  show       ", dim),
                   ("the feature request, the checks on base and reference, the existing tests", code)],
          "line": 125000, "before": 0},
         {"segs": [("3  measure    ", dim), ("how often Haiku solved each submitted task", code),
                   ("   (--regrade: in the containers)", dim)], "line": 125000, "before": 0},
     ])
-    watch = [
-        ("THE FEATURE REQUEST",
-         "instruction.md of a package made in front of you: what to build, written as observable behavior."),
-        ("CHECKS ON BASE AND REFERENCE",
-         "The new tests fail on click 8.5.1 and pass with the reference solution. In Harbor: nop 0.0, oracle 1.0."),
-        ("WHICH EXISTING TESTS RAN",
-         "Up to 80 of click's own tests, chosen by coverage of the lines the change touches. All must stay green."),
-    ]
-    w, gap, top, h = (11.78 - 2 * 0.2) / 3, 0.2, 4.72, 1.62
-    for i, (label, text) in enumerate(watch):
-        left = 0.78 + i * (w + gap)
-        clone(s3, card_src, f"watch{i + 1}", left, top, w, h)
-        tb = clone(s3, card_text_src, f"watch{i + 1}-text", left + 0.25, top, w - 0.5, h)
-        fill(tb, [text], base={"size": 13.5}, label=label)
+    textbox(s3, "checks-title", 0.78, 4.15, 11.78, 0.26,
+            [[("THE 8 LOCAL CHECKS IN THE DEMO LOG", 11, BLUE, True),
+              ("     every candidate, no Docker, about 30 s per task; a failed check goes back to the model with "
+               "its report", 10.5, "6B7280", False)]], anchor=MSO_ANCHOR.MIDDLE)
+    w, gap, top, h, vgap = (11.78 - 3 * 0.16) / 4, 0.16, 4.49, 1.12, 0.12
+    for i, (label, text) in enumerate(CHECKS):
+        r_i, c_i = divmod(i, 4)
+        left, y = 0.78 + c_i * (w + gap), top + r_i * (h + vgap)
+        clone(s3, card_src, f"check{i + 1}", left, y, w, h)
+        tb = clone(s3, card_text_src, f"check{i + 1}-text", left + 0.2, y + 0.1, w - 0.36, h - 0.16)
+        tb.text_frame.vertical_anchor = MSO_ANCHOR.TOP                     # labels line up across the row
+        fill(tb, [text], base={"size": 11.5}, label=f"{i + 1}  {label}", line=105000)
 
     # 4 ---- what the runs showed: four numbers, the required sentences, one row per task
     remove(s4, "card-visual")
@@ -496,15 +579,18 @@ def build(template: Path, out: Path, sub: Path, team: str, members: str) -> dict
         "30 s. We built a task factory for pallets/click. Other pipelines claim their tasks are hard and fair; "
         "ours measures it. The benchmark model sits inside the generation loop, so every task ships with a "
         "measured solve rate, a measured overlap with its sibling tasks, and proof that its tests are sound.",
-        "30 s. Input: click 8.5.1 and a seed. Read the diagram left to right. Plan: a variation matrix gives "
-        "each task a different area of click and a different kind of behavior. Write: Opus writes the feature "
-        "request, the reference solution and the tests. Check: eight local checks reject broken, unfair or "
-        "already-upstream tasks (new tests fail on the base and pass on the reference, existing tests stay "
-        "green, injected bugs are caught, tests assert only what the request states, the feature is not already "
-        "in upstream click). The grey loop is repair: a failed check goes back to the model with the exact "
-        "report. The blue loop is ours: Haiku attempts the task three times, and if it solves it more than once "
-        "the task is deepened, then checked and measured again.",
-        "2.5 min. In PowerShell, from the repo folder, run .\\demo (about 90 seconds). It replays the model "
+        "45 s. Read the diagram left to right. Plan: the seed picks cells of the variation matrix below. Write: "
+        "Opus writes the feature request, the reference solution and the tests. Check: eight local checks (the "
+        "next slide lists them). The grey loop is repair: a failed check goes back to the model with the exact "
+        "report, at most 3 attempts. The blue loop is ours: Haiku attempts the task three times; at most one "
+        "solve and it ships, otherwise it is deepened, then checked and measured again, at most 2 rounds. "
+        "The matrix: rows are six areas of click, columns are five kinds of change. Blue cells are this batch "
+        "(seed 1), with the task number; white cells are other allowed pairs; a dash is a pair the planner never "
+        "picks, such as lifecycle for shell completion. No row and no column repeats in a batch, so the five "
+        f"tasks differ in where they change click and in what kind of reasoning they need. Measured overlap: at "
+        f"most {ev['max_sim']:.2f}.",
+        "2.5 min. The eight cards are the eight checks the demo log prints with PASS or FAIL, in the same order. "
+        "In PowerShell, from the repo folder, run .\\demo (about 90 seconds). It replays the model "
         "answers recorded in the response cache, so it spends nothing, and runs every check for real. While it "
         "runs, read the log: design, then each check. Offline, 4 of 5 packages complete; the fifth (0103) has a "
         "first draft that fails its own tests, and the repair step is a live model call, so the replay stops "
