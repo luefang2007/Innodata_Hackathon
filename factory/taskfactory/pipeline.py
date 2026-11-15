@@ -33,17 +33,44 @@ def _slugify(s: str) -> str:
     return "-".join(s.split("-")[:5])[:40] or "feature"
 
 
+def _deepen_call(system: list[dict], prompt: str, tel: llm.Telemetry, log_dir: Path, tag: str) -> dict:
+    """A delta call: less reasoning effort than a first draft, and one retry with still less when the
+    answer is cut off at the output limit (in the first jury run 3 of 5 full rewrites were cut off)."""
+    efforts = [config.DEEPEN_EFFORT or None]
+    if config.DEEPEN_RETRY_EFFORT:
+        efforts.append(config.DEEPEN_RETRY_EFFORT)
+    for n, effort in enumerate(efforts):
+        try:
+            return llm.call_json(system, prompt, prompts.IMPL_SCHEMA, tel, log_dir,
+                                 tag if n == 0 else f"{tag}-retry", effort=effort)
+        except llm.Truncated:
+            if n == len(efforts) - 1:
+                raise
+            _say("deepen", f"{tag}: the answer was cut off at the output limit; retrying with effort "
+                           f"{efforts[n + 1]}")
+    raise llm.LLMError("no deepen call was made")          # not reachable: efforts is never empty
+
+
 def _to_valid(impl: dict, spec: str, test_path: str, system: list[dict], tel: llm.Telemetry, log_dir: Path,
-              record: dict, tag: str, max_attempts: int, label: str = "") -> tuple | None:
+              record: dict, tag: str, max_attempts: int, label: str = "",
+              base: checks.Candidate | None = None) -> tuple | None:
     """Build -> gates -> repair loop. Returns (candidate, report, answer, spec) for the first candidate
-    that clears every gate, or None when the attempts run out."""
+    that clears every gate, or None when the attempts run out.
+
+    With `base` (the valid candidate that is being deepened) every answer is a delta: edits against
+    `base`, which itself stays untouched, so a failed delta never costs the task."""
     attempts = 0
     while True:
         attempts += 1
         record["attempts"] += 1
-        if impl.get("instruction_md", "").strip():
-            spec = impl["instruction_md"]
-        cand, err = checks.build_candidate(impl["edits"], impl["test_file_content"], test_path, spec)
+        if base is not None:
+            cand, err = checks.build_delta_candidate(base, impl["edits"], test_path)
+            if cand is not None:
+                spec = cand.spec
+        else:
+            if impl.get("instruction_md", "").strip():
+                spec = impl["instruction_md"]
+            cand, err = checks.build_candidate(impl["edits"], impl["test_file_content"], test_path, spec)
         if cand is None:
             failures = f"[build] the answer could not be applied:\n{err}"
             record["reports"].append({"attempt": record["attempts"], "stage": label.strip(),
@@ -62,8 +89,13 @@ def _to_valid(impl: dict, spec: str, test_path: str, system: list[dict], tel: ll
         if attempts >= max_attempts:
             record["last_failures"] = failures[:3000]
             return None
-        impl = llm.call_json(system, prompts.repair(spec, impl, failures, test_path), prompts.IMPL_SCHEMA,
-                             tel, log_dir, f"repair{record['attempts']}")
+        if base is not None:
+            impl = _deepen_call(system, prompts.repair_delta(base.spec, base.gold_patch, base.test_content,
+                                                             impl, failures, test_path),
+                                tel, log_dir, f"repair{record['attempts']}")
+        else:
+            impl = llm.call_json(system, prompts.repair(spec, impl, failures, test_path), prompts.IMPL_SCHEMA,
+                                 tel, log_dir, f"repair{record['attempts']}")
 
 
 def _jury_rounds(valid: tuple, test_path: str, system: list[dict], tel: llm.Telemetry, jtel: llm.Telemetry,
@@ -87,17 +119,24 @@ def _jury_rounds(valid: tuple, test_path: str, system: list[dict], tel: llm.Tele
             best = (cand, rep, probe)
         if probe["rate"] <= config.JURY_MAX_WEAK_RATE or rnd == config.JURY_MAX_ESCALATIONS:
             break
-        mech_name, mech_text = matrix.depth_for(shape, rnd + 1)
-        record["jury"][-1]["deepen_with"] = mech_name
+        # with FACTORY_DESIGN_DEPTH the design already used the shape's first mechanism
+        mech_name, mech_text = matrix.depth_for(shape, rnd + 1 + (1 if config.DESIGN_DEPTH else 0))
+        delta = config.DEEPEN_MODE == "delta"
+        record["jury"][-1].update({"deepen_with": mech_name, "deepen_mode": "delta" if delta else "rewrite"})
         try:
-            impl = llm.call_json(system, prompts.deepen(cand.spec, cand.gold_patch, cand.test_content, probe,
-                                                        test_path, mech_text),
-                                 prompts.IMPL_SCHEMA, tel, log_dir, f"deepen{rnd + 1}")
+            if delta:
+                impl = _deepen_call(system, prompts.deepen_delta(cand.spec, cand.gold_patch, cand.test_content,
+                                                                 probe, test_path, mech_text),
+                                    tel, log_dir, f"deepen{rnd + 1}")
+            else:
+                impl = llm.call_json(system, prompts.deepen(cand.spec, cand.gold_patch, cand.test_content, probe,
+                                                            test_path, mech_text),
+                                     prompts.IMPL_SCHEMA, tel, log_dir, f"deepen{rnd + 1}")
         except llm.LLMError as exc:
             record["jury_note"] = f"deepening stopped: {exc}"[:300]
             break
         nxt = _to_valid(impl, spec, test_path, system, tel, log_dir, record, tag, max_attempts=2,
-                        label=f"deepen{rnd + 1} ")
+                        label=f"deepen{rnd + 1} ", base=cand if delta else None)
         if nxt is None:
             record["jury_note"] = "the deepened candidate did not validate; the previous one was kept"
             break
@@ -114,7 +153,12 @@ def make_task(cell: dict, number: int, siblings: list[str], system: list[dict], 
     log_dir = run_dir / tag
     record = {"cell": cell, "number": number, "status": "failed", "attempts": 0, "reports": []}
     try:
-        design = llm.call_json(system, prompts.design(cell, siblings), prompts.DESIGN_SCHEMA, tel,
+        # optional: ask for the shape's first depth mechanism in the design itself (changes the prompt,
+        # so it is off unless FACTORY_DESIGN_DEPTH is set; recorded answers replay only when it is off)
+        depth_name, depth_text = matrix.depth_for(cell["shape"], 1) if config.DESIGN_DEPTH else ("", "")
+        if depth_name:
+            record["design_depth"] = depth_name
+        design = llm.call_json(system, prompts.design(cell, siblings, depth_text), prompts.DESIGN_SCHEMA, tel,
                                log_dir, "design")
         slug = _slugify(design["slug"])
         iid = f"{config.ORG_REPO_SLUG}-{number:04d}-{slug}"
@@ -122,8 +166,8 @@ def make_task(cell: dict, number: int, siblings: list[str], system: list[dict], 
         spec = design["instruction_md"]
         record.update({"instance_id": iid, "title": design["title"], "capability": design["capability"]})
         _say(tag, f"design: {design['title']}  (${tel.cost_usd:.2f} so far)")
-        impl = llm.call_json(system, prompts.implement(design, spec, test_path), prompts.IMPL_SCHEMA, tel,
-                             log_dir, "implement")
+        impl = llm.call_json(system, prompts.implement(design, spec, test_path, combined=bool(depth_name)),
+                             prompts.IMPL_SCHEMA, tel, log_dir, "implement")
         valid = _to_valid(impl, spec, test_path, system, tel, log_dir, record, tag, config.MAX_ATTEMPTS)
         if valid is not None:
             cand, rep = valid[0], valid[1]

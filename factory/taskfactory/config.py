@@ -65,6 +65,19 @@ JURY_STRONG_MODEL = os.environ.get("FACTORY_JURY_STRONG", "")         # optional
 JURY_CONTEXT_CHARS = int(os.environ.get("FACTORY_JURY_CONTEXT", "240000"))    # keeps prompts < 100k tokens
 JURY_MAX_TRAPS = 20                                                    # existing tests a weak patch broke
 
+# --- deepening a task the jury found too easy -------------------------------------------------------
+# "delta": the model returns only search/replace edits against the CURRENT task (source with the gold
+# applied, the test file, instruction.md), with less reasoning effort, and one retry with still less
+# when the answer is cut off at the output limit. "rewrite": the first design, where it re-emits the
+# whole task with full effort (3 of 5 such answers hit max_tokens in the first jury run).
+DEEPEN_MODE = os.environ.get("FACTORY_DEEPEN_MODE", "delta")           # "delta" | "rewrite"
+DEEPEN_EFFORT = os.environ.get("FACTORY_DEEPEN_EFFORT", "medium")      # "" = the generation effort
+DEEPEN_RETRY_EFFORT = os.environ.get("FACTORY_DEEPEN_RETRY_EFFORT", "low")    # "" = no retry
+# Ask for the depth mechanism already in the design prompt, so the first draft is deep and the later
+# rewrite is rarely needed. Off by default: it changes the design prompt, so the recorded answers of
+# earlier runs could no longer be replayed from the response cache (the offline demo relies on that).
+DESIGN_DEPTH = os.environ.get("FACTORY_DESIGN_DEPTH", "0") not in ("", "0")
+
 
 def backend_model(model: str) -> str:
     """Model id in the active backend's spelling (OpenRouter: anthropic/claude-haiku-5.5; SDK: claude-haiku-5-5)."""

@@ -42,6 +42,10 @@ class BudgetExceeded(LLMError):
     pass
 
 
+class Truncated(LLMError):
+    """The answer was cut off at the output-token limit (the caller may retry with less reasoning)."""
+
+
 # ------------------------------------------------------------------------------------------------
 # budget guard: every call reserves its worst-case cost first, so parallel tasks can never push
 # total spend past the cap
@@ -98,9 +102,12 @@ def reset_cache_gates() -> None:
         _gates.clear()
 
 
-def _enter_cache_gate(schema: dict) -> threading.Event | None:
-    """Returns the Event to set when a leader call finishes, or None for a follower (after waiting)."""
-    key = json.dumps(schema, sort_keys=True)
+def _enter_cache_gate(schema: dict, effort: str | None = None) -> threading.Event | None:
+    """Returns the Event to set when a leader call finishes, or None for a follower (after waiting).
+
+    Calls with another reasoning effort get a gate of their own: the reasoning settings may be part of
+    the cached prefix as well, and a second gate costs at most one stagger."""
+    key = json.dumps(schema, sort_keys=True) + (f"|{effort}" if effort and effort != config.EFFORT else "")
     with _gate_lock:
         gate = _gates.get(key)
         if gate is None:
@@ -116,9 +123,11 @@ def _enter_cache_gate(schema: dict) -> threading.Event | None:
 # response cache: an identical request (model, system, schema, prompt) is answered from disk
 # ------------------------------------------------------------------------------------------------
 
-def _cache_key(system: list[dict], schema: dict, user_text: str, model: str | None = None) -> str:
+def _cache_key(system: list[dict], schema: dict, user_text: str, model: str | None = None,
+               effort: str | None = None) -> str:
     import hashlib
-    blob = json.dumps([model or config.MODEL, config.EFFORT, system, schema, user_text], sort_keys=True)
+    blob = json.dumps([model or config.MODEL, effort or config.EFFORT, system, schema, user_text],
+                      sort_keys=True)
     return hashlib.sha256(blob.encode("utf-8")).hexdigest()[:32]
 
 
@@ -127,8 +136,8 @@ def _cache_path(key: str) -> Path:
 
 
 def cache_store(system: list[dict], schema: dict, user_text: str, response_text: str, usage: dict,
-                cost: float) -> None:
-    p = _cache_path(_cache_key(system, schema, user_text))
+                cost: float, effort: str | None = None) -> None:
+    p = _cache_path(_cache_key(system, schema, user_text, effort=effort))
     p.parent.mkdir(parents=True, exist_ok=True)
     p.write_text(json.dumps({"response_text": response_text, "usage": usage, "cost_usd": cost}), encoding="utf-8")
 
@@ -300,10 +309,12 @@ def prewarm(system: list[dict], schema: dict, telemetry: Telemetry, log_dir: Pat
 def call_json(system: list[dict], user_text: str, schema: dict, telemetry: Telemetry,
               log_dir: Path, tag: str, model: str | None = None, effort: str | None = None,
               reserve: float | None = None, use_cache: bool = True) -> dict:
-    if model or effort:
+    """One structured call. With `model` it is an uncached call to another model (the solver jury).
+    With only `effort` it is the generation model at another reasoning effort, cached like any other."""
+    if model:
         return _call_with_model(system, user_text, schema, telemetry, log_dir, tag, model, effort, reserve)
     if config.RESPONSE_CACHE and use_cache:
-        cp = _cache_path(_cache_key(system, schema, user_text))
+        cp = _cache_path(_cache_key(system, schema, user_text, effort=effort))
         if cp.exists():
             hit = json.loads(cp.read_text(encoding="utf-8"))
             u = hit["usage"]
@@ -318,12 +329,12 @@ def call_json(system: list[dict], user_text: str, schema: dict, telemetry: Telem
             return json.loads(hit["response_text"])
     if config.OFFLINE:
         raise BudgetExceeded(f"offline mode (FACTORY_OFFLINE): no cached response for '{tag}'")
-    leader_done = _enter_cache_gate(schema)
+    leader_done = _enter_cache_gate(schema, effort)
     try:
         _reserve(tag)
         t0 = time.time()
         try:
-            return _call_json_uncached(system, user_text, schema, telemetry, log_dir, tag, t0)
+            return _call_json_uncached(system, user_text, schema, telemetry, log_dir, tag, t0, effort)
         finally:
             _settle(telemetry.calls[-1]["cost_usd"] if telemetry.calls and telemetry.calls[-1]["tag"] == tag
                     else 0.0)
@@ -362,7 +373,9 @@ def _call_with_model(system, user_text, schema, telemetry, log_dir, tag, model, 
                 "tag": tag, "backend": "anthropic", "model": msg.model, "stop_reason": msg.stop_reason,
                 "usage": msg.usage.to_dict(), "user_prompt": user_text, "response_text": text}, indent=1),
                 encoding="utf-8")
-            if msg.stop_reason in ("refusal", "max_tokens"):
+            if msg.stop_reason == "max_tokens":
+                raise Truncated("response stopped early (max_tokens)")
+            if msg.stop_reason == "refusal":
                 raise LLMError(f"response stopped early ({msg.stop_reason})")
             return json.loads(text)
         if config.BACKEND == "openrouter":
@@ -383,7 +396,7 @@ def _call_with_model(system, user_text, schema, telemetry, log_dir, tag, model, 
                 "usage": payload.get("usage"), "user_prompt": user_text, "response_text": text}, indent=1),
                 encoding="utf-8")
             if stop == "length":
-                raise LLMError("response truncated at max_tokens")
+                raise Truncated("response truncated at max_tokens")
             return json.loads(text)
         raise LLMError("the probe currently needs the OpenRouter backend")
     except json.JSONDecodeError as exc:
@@ -393,9 +406,9 @@ def _call_with_model(system, user_text, schema, telemetry, log_dir, tag, model, 
 
 
 def _call_json_uncached(system: list[dict], user_text: str, schema: dict, telemetry: Telemetry,
-                        log_dir: Path, tag: str, t0: float) -> dict:
+                        log_dir: Path, tag: str, t0: float, effort: str | None = None) -> dict:
     if config.BACKEND == "openrouter":
-        body = _or_body(system, user_text, config.MAX_OUTPUT_TOKENS)
+        body = _or_body(system, user_text, config.MAX_OUTPUT_TOKENS, effort=effort)
         body["response_format"] = {"type": "json_schema",
                                    "json_schema": {"name": "answer", "strict": True, "schema": schema}}
         payload = _or_request("/chat/completions", body)
@@ -416,7 +429,7 @@ def _call_json_uncached(system: list[dict], user_text: str, schema: dict, teleme
                 max_tokens=config.MAX_OUTPUT_TOKENS,
                 system=system,
                 messages=[{"role": "user", "content": user_text}],
-                output_config={"effort": config.EFFORT,
+                output_config={"effort": effort or config.EFFORT,
                                "format": {"type": "json_schema", "schema": schema}},
             ) as stream:
                 msg = stream.get_final_message()
@@ -435,19 +448,19 @@ def _call_json_uncached(system: list[dict], user_text: str, schema: dict, teleme
     log_dir.mkdir(parents=True, exist_ok=True)
     (log_dir / f"{len(telemetry.calls):02d}-{tag}.json").write_text(json.dumps({
         "tag": tag, "backend": config.BACKEND, "model": model_used, "request_id": request_id,
-        "stop_reason": stop, "usage": usage_log, "seconds": round(seconds, 1),
-        "user_prompt": user_text, "response_text": text,
+        "effort": effort or config.EFFORT, "stop_reason": stop, "usage": usage_log,
+        "seconds": round(seconds, 1), "user_prompt": user_text, "response_text": text,
     }, indent=1), encoding="utf-8")
     if refused:
         raise LLMError("model refused the request")
     if truncated:
-        raise LLMError("response truncated at max_tokens")
+        raise Truncated("response truncated at max_tokens")
     try:
         parsed = json.loads(text)
     except json.JSONDecodeError as exc:
         raise LLMError(f"response was not valid JSON: {exc}") from exc
     if config.RESPONSE_CACHE:
-        cache_store(system, schema, user_text, text, usage_log, telemetry.calls[-1]["cost_usd"])
+        cache_store(system, schema, user_text, text, usage_log, telemetry.calls[-1]["cost_usd"], effort)
     return parsed
 
 
@@ -472,7 +485,8 @@ def seed_cache_from_logs(runs_dir: Path, system: list[dict], schemas: dict[str, 
             continue
         u = d.get("usage") or {}
         cost = float(u["cost"]) if u.get("cost") is not None else 0.0
-        if not _cache_path(_cache_key(system, schema, d["user_prompt"])).exists():
-            cache_store(system, schema, d["user_prompt"], d["response_text"], u, cost)
+        effort = d.get("effort")          # logged since calls can use another effort; absent = the default
+        if not _cache_path(_cache_key(system, schema, d["user_prompt"], effort=effort)).exists():
+            cache_store(system, schema, d["user_prompt"], d["response_text"], u, cost, effort)
             n += 1
     return n

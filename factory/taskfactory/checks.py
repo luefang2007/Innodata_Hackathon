@@ -113,41 +113,23 @@ def apply_edits(wc: Path, edits: list[dict]) -> tuple[list[str], list[str]]:
     return touched, errors
 
 
-def build_candidate(edits: list[dict], test_content: str, test_path: str, spec: str) -> tuple[Candidate | None, str]:
-    errors = []
+def build_candidate(edits: list[dict], test_content: str, test_path: str, spec: str,
+                    pre_patch: str = "") -> tuple[Candidate | None, str]:
+    """Turn a model answer into a candidate: the gold as one diff against the base, plus the test file.
+
+    `pre_patch` is a gold diff that is applied to the base first; the edits are then a delta on top of
+    it, and the resulting gold is again one diff against the base."""
     with repo.workcopy(config.BASE_SNAPSHOT) as wc:
-        touched = []
-        for i, ed in enumerate(edits):
-            path = ed["path"].strip().lstrip("./").replace("\\", "/")
-            if not path.startswith("src/click/") or not path.endswith(".py"):
-                errors.append(f"edit {i}: path {path!r} is outside src/click/*.py")
-                continue
-            fpath = wc / path
-            search = ed["search"].replace("\r\n", "\n")
-            replace = ed["replace"].replace("\r\n", "\n")
-            if not fpath.exists():
-                if search.strip():
-                    errors.append(f"edit {i}: {path} does not exist (use an empty search to create a new module)")
-                    continue
-                repo.write_text(fpath, replace)
-            else:
-                text = repo.read_text(fpath)
-                n = text.count(search) if search else 0
-                if n != 1:
-                    errors.append(f"edit {i}: search block matches {n} times in {path} (must match exactly once):\n"
-                                  f"{search[:400]}")
-                    continue
-                repo.write_text(fpath, text.replace(search, replace, 1))
-            if path not in touched:
-                touched.append(path)
-        for path in touched:
-            try:
-                compile(repo.read_text(wc / path), path, "exec")
-            except SyntaxError as exc:
-                errors.append(f"{path}: SyntaxError after edits: {exc}")
+        before: list[str] = []
+        if pre_patch.strip():
+            ok, err = repo.apply_patch(wc, pre_patch)
+            if not ok:
+                return None, f"the current gold does not apply to the base source: {err[:500]}"
+            before = re.findall(r"^\+\+\+ b/(\S+)", pre_patch, re.M)
+        touched, errors = apply_edits(wc, edits)
         if errors:
             return None, "\n".join(errors)
-        gold = repo.diff_against_head(wc, touched)
+        gold = repo.diff_against_head(wc, list(dict.fromkeys([*before, *touched])))
     if not gold.strip():
         return None, "the edits produce an empty gold patch"
     with repo.workcopy(config.BASE_SNAPSHOT) as wc:
@@ -161,6 +143,43 @@ def build_candidate(edits: list[dict], test_content: str, test_path: str, spec: 
         test_patch = repo.diff_against_head(wc, [test_path])
     return Candidate(spec=spec, gold_patch=gold, test_patch=test_patch, test_path=test_path,
                      test_content=test_content), ""
+
+
+def _text_edit(text: str, ed: dict, i: int, label: str) -> tuple[str, str]:
+    """One search/replace edit on a text (the test file or instruction.md). An empty search appends."""
+    search = ed["search"].replace("\r\n", "\n")
+    replace = ed["replace"].replace("\r\n", "\n")
+    if not search.strip():
+        return text.rstrip("\n") + "\n\n\n" + replace.strip("\n") + "\n", ""
+    n = text.count(search)
+    if n != 1:
+        return text, (f"edit {i}: search block matches {n} times in {label} (must match exactly once):\n"
+                      f"{search[:400]}")
+    return text.replace(search, replace, 1), ""
+
+
+def build_delta_candidate(prev: Candidate, edits: list[dict], test_path: str) -> tuple[Candidate | None, str]:
+    """Rebuild a candidate from a delta: search/replace edits against the CURRENT task.
+
+    `path` selects what an edit changes: a file under src/click/ (as it is with the current gold applied),
+    the test file, or instruction.md. `prev` is not modified; the new gold is one diff against the base."""
+    spec, tests, src, errors = prev.spec, prev.test_content, [], []
+    for i, ed in enumerate(edits):
+        path = ed["path"].strip().lstrip("./").replace("\\", "/")
+        err = ""
+        if path == test_path:
+            tests, err = _text_edit(tests, ed, i, path)
+        elif path.lower() == "instruction.md":
+            spec, err = _text_edit(spec, ed, i, "instruction.md")
+        else:
+            src.append(ed)
+        if err:
+            errors.append(err)
+    if errors:
+        return None, "\n".join(errors)
+    if not src and spec == prev.spec and tests == prev.test_content:
+        return None, "the answer contains no edit: nothing would change"
+    return build_candidate(src, tests, test_path, spec, pre_patch=prev.gold_patch)
 
 
 # ------------------------------------------------------------------------------------------------
