@@ -1,0 +1,461 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Solver-in-the-Loop Task Factory</title>
+<!--
+  One-page project poster for LinkedIn and WeChat Moments: 1080 x 1350 (4:5), exported at 2x.
+  One picture, several dresses:
+    poster.html?style=haze      haze blue: fog, a pale disc and a dark one, Bodoni
+    poster.html?style=roman     Pompeian red plaster, marble and gold, inscriptional capitals, a coin's beaded rim
+    poster.html?style=gothic    black, bone and crimson, blackletter, a rose window's lozenges
+    poster.html?style=ink       Chinese ink wash: dense and pale ink on rice paper, one cinnabar seal
+    poster.html?style=lupi      editorial data drawing after Lieflat Charts' Lupi/Mono grammar: paper grey and
+                                charcoal, hairlines, one mark per record, notes on leader lines
+    poster.html?style=cloth     green book cloth stamped in bone and gold (also the default)
+    poster.html?style=stone     ink and viridian on stone paper
+    ...&lang=zh                 Chinese captions
+  Export:     python social/render.py          (headless Edge or Chrome; writes poster_<style>_<lang>.jpg)
+
+  The picture carries the research; every mark in it is a recorded fact, not decoration:
+    outer ring     60 bugs injected into the reference solutions, 12 per task, in five groups; a hollow mark is a
+                   bug the generated tests missed (caught: 10, 12, 11, 11, 9 = 53)      runs/.../summary.json
+    plain disc     the writer, holding the 6 x 5 variation matrix: solid cells are the five tasks of seed 1,
+                   faint cells the other allowed pairs                                   factory/taskfactory/matrix.py
+    eight bars     the eight gates between writer and solver                             factory/taskfactory/checks.py
+    accent disc    the solver, holding its 15 attempts on the shipped tasks (5 tasks x 3 tries);
+                   hollow = not solved: task 0101 was solved once, the others three times  probe_container/summary.json
+    centre         task 0101: solved 3 of 3 before deepening, 1 of 3 after one round     probe_container/summary.json
+  The numbers under it: 5 of 5 valid, Harbor oracle 1.0 / nop 0.0 (selfcheck/SUMMARY.txt), max similarity 0.11
+  (diversity.md), spend 10.95 + 1.80 + 11.01 = 23.76 USD (HANDOFF.md).
+-->
+<style>
+:root{
+  --paper:#15382C; --ink:#EDE7D9; --ink2:#A9B3A6; --ink3:#84917F; --hair:#2C5244; --quiet:#4F6E60; --accent:#D8B76A;
+  --title:"Centaur","Garamond","Noto Serif SC",Georgia,serif;
+  --text:"Centaur","Garamond","Noto Serif SC",Georgia,serif;
+  --cap:"Bahnschrift","Segoe UI","Noto Sans SC",sans-serif;
+  --din:"Bahnschrift","Segoe UI","Noto Sans SC",sans-serif;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{width:1080px;height:1350px;background:var(--paper);overflow:hidden}
+body{font-family:var(--text);color:var(--ink);-webkit-font-smoothing:antialiased;text-rendering:geometricPrecision}
+.page{position:relative;width:1080px;height:1350px;text-align:center;background:var(--paper)}
+.page>*{position:absolute;left:0;width:1080px}
+.tex,.frame{top:0;height:1350px;pointer-events:none}
+.halo,.kicker,.lede{display:none}
+
+h1{top:86px;font:400 112px/.99 var(--title);letter-spacing:-.014em}
+h1 span{display:block}
+h1 .a{color:var(--accent)}
+h1 i{font-style:normal;letter-spacing:-.03em}
+
+.art{top:352px}
+.art .role{font:600 12.5px var(--cap);letter-spacing:.24em;text-transform:uppercase;fill:var(--ink)}
+.art .role.b{fill:var(--accent)}
+.art .name{font:400 25px var(--text);fill:var(--ink)}
+.art .num{font:600 21px var(--din);fill:var(--ink3);letter-spacing:.02em}
+.art .num.b{fill:var(--accent)}
+
+.spec{top:1058px;display:grid;grid-template-columns:repeat(5,176px);justify-content:center}
+.spec div+div{border-left:1px solid var(--hair)}
+.spec b{display:block;height:42px;font:400 42px/42px var(--text)}
+.spec b small{font-size:.8em;color:var(--ink3);margin:0 .06em}
+.spec span{display:block;margin-top:9px;font:500 10.5px/1.4 var(--cap);letter-spacing:.15em;white-space:nowrap;text-transform:uppercase;color:var(--ink2)}
+
+footer{bottom:56px}
+footer b{display:block;font:400 24px/1.2 var(--text);letter-spacing:.005em}
+footer b svg{display:none}
+footer span{display:block;margin-top:9px;font:500 10.5px/1.3 var(--cap);letter-spacing:.24em;text-transform:uppercase;color:var(--ink3)}
+
+/* ---------- haze blue: thin, cool, a light in the fog ---------- */
+.s-haze{--title:"Bodoni MT","Noto Serif SC",serif;--text:"Bodoni MT","Noto Serif SC",serif}
+.s-haze h1{top:92px;font-size:106px;line-height:1.0;letter-spacing:-.012em}
+.s-haze .halo{display:block;left:60px;top:222px;width:960px;height:920px;
+  background:radial-gradient(closest-side,rgba(255,255,255,.20),rgba(255,255,255,.07) 55%,rgba(255,255,255,0))}
+.s-haze .art .role{font-weight:500;letter-spacing:.3em}
+.s-haze .art .name{font-size:24px}
+.s-haze .spec b{font-size:40px}
+.s-haze .spec span{font-weight:400;letter-spacing:.2em}
+.s-haze footer b{font-size:23px}
+
+/* ---------- Roman: a painted wall, an inscription, a coin ---------- */
+.s-roman{--title:"Felix Titling","Perpetua Titling MT","Noto Serif SC",serif;--text:"Perpetua","Centaur","Noto Serif SC",serif;
+  --cap:"Felix Titling","Perpetua Titling MT","Noto Serif SC",serif}
+.s-roman h1{top:118px;font-size:69px;line-height:1.22;letter-spacing:.075em}
+.s-roman .art .role{font-weight:400;font-size:12px;letter-spacing:.3em}
+.s-roman .art .name{font-size:26px}
+.s-roman .spec b{font-size:47px}
+.s-roman .spec span{font-weight:400;font-size:10px;letter-spacing:.2em}
+.s-roman footer b{font:400 18px/1.2 var(--cap);letter-spacing:.3em;text-transform:uppercase}
+.s-roman footer span{font-weight:400;font-size:10px;letter-spacing:.3em;margin-top:11px}
+
+/* ---------- Gothic: blackletter and a rose window ---------- */
+.s-gothic{--title:"Old English Text MT","Noto Serif SC",serif;--text:"Goudy Old Style","Garamond","Noto Serif SC",serif;
+  --cap:"Goudy Old Style","Garamond","Noto Serif SC",serif}
+.s-gothic h1{top:100px;font-size:94px;line-height:1.08;letter-spacing:.004em}
+.s-gothic h1 u{text-decoration:none;margin:0 -.09em}
+.s-gothic .art .role{font-weight:400;font-size:13.5px;letter-spacing:.3em}
+.s-gothic .art .name{font-size:25px}
+.s-gothic .spec b{font-size:40px}
+.s-gothic .spec span{font-weight:400;font-size:10.5px;letter-spacing:.13em}
+.s-gothic footer b{font:400 30px/1.1 var(--title)}
+.s-gothic footer span{font-weight:400;font-size:11.5px;letter-spacing:.28em;margin-top:8px}
+
+/* ---------- Chinese ink wash: dense ink, pale ink, one seal ---------- */
+.s-ink{--cap:"Centaur","KaiTi","STKaiti","Noto Serif SC",serif}
+.s-ink .art .role{font-weight:400;font-size:14px;letter-spacing:.3em}
+.s-ink .art .role.b{fill:var(--ink2)}
+.s-ink .art .num.b{fill:var(--ink)}
+.s-ink .spec span{font-weight:400;font-size:10.5px;letter-spacing:.14em}
+.s-ink footer b{display:flex;justify-content:center;align-items:center;gap:13px}
+.s-ink footer b svg{display:block;width:27px;height:27px}
+.s-ink footer span{font-weight:400;font-size:11.5px;letter-spacing:.3em;margin-top:11px}
+
+/* ---------- Lupi / Mono: an editorial data drawing ---------- */
+.s-lupi{--title:"Segoe UI Variable Display","Segoe UI","Noto Sans SC",sans-serif;--text:"Segoe UI Variable Display","Segoe UI","Noto Sans SC",sans-serif;
+  --cap:"Segoe UI Variable Text","Segoe UI","Noto Sans SC",sans-serif}
+.s-lupi .page{text-align:left}
+.s-lupi .page>.kicker,.s-lupi .page>h1,.s-lupi .page>.lede,.s-lupi .page>.spec,.s-lupi .page>footer{left:72px;width:936px}
+.s-lupi .kicker{display:block;top:76px;font:400 14px/1 var(--cap);color:var(--ink2);letter-spacing:.01em}
+.s-lupi h1{top:104px;font:700 82px/1.02 var(--title);letter-spacing:-.038em}
+.s-lupi h1 i{letter-spacing:-.08em}
+.s-lupi .lede{display:block;top:306px}
+.s-lupi .lede b{display:block;font:600 17px/1.3 var(--text);letter-spacing:-.005em}
+.s-lupi .lede span{display:block;margin-top:5px;font:400 13px/1.3 var(--cap);color:var(--ink2)}
+.s-lupi .art{top:356px}
+.s-lupi .art .an{font:400 12.5px var(--cap);fill:var(--ink2)}
+.s-lupi .art .ab{font:600 13px var(--text);fill:var(--ink)}
+.s-lupi .art .tiny{font:500 9.5px var(--cap);letter-spacing:.2em;text-transform:uppercase;fill:var(--ink3)}
+.s-lupi .art .ix{fill:var(--ink3);font-weight:400}
+.s-lupi .art .mc{font:500 9px var(--cap);letter-spacing:.2em;text-transform:uppercase;fill:var(--paper);opacity:.62}
+.s-lupi .art .m1{font:600 20px var(--text);fill:var(--paper);opacity:.5;letter-spacing:-.01em}
+.s-lupi .art .m2{font:700 34px var(--text);fill:var(--paper);letter-spacing:-.03em}
+.s-lupi .spec{top:1076px;grid-template-columns:repeat(5,1fr);justify-content:stretch;border-top:1px solid var(--ink);padding-top:15px}
+.s-lupi .spec div+div{border-left:0}
+.s-lupi .spec b{height:40px;font:700 35px/40px var(--text);letter-spacing:-.035em}
+.s-lupi .spec b small{font-size:.92em;font-weight:400;margin:0 .03em}
+.s-lupi .spec span{margin-top:6px;font:400 12.5px/1.4 var(--cap);letter-spacing:0;text-transform:none}
+.s-lupi footer{bottom:52px;display:flex;justify-content:space-between;align-items:baseline;border-top:1px solid var(--hair);padding-top:13px}
+.s-lupi footer b{font:600 10.5px/1 var(--cap);letter-spacing:.22em;text-transform:uppercase}
+.s-lupi footer span{display:none}
+
+/* ---------- Chinese captions ---------- */
+html[lang^=zh]{--cap:"Bahnschrift","Noto Serif SC",serif}
+html[lang^=zh].s-roman{--cap:"Felix Titling","Noto Serif SC",serif}
+html[lang^=zh].s-gothic{--cap:"Goudy Old Style","Noto Serif SC",serif}
+html[lang^=zh].s-ink{--cap:"Centaur","KaiTi","STKaiti","Noto Serif SC",serif}
+html[lang^=zh].s-lupi{--cap:"Segoe UI","Noto Sans SC",sans-serif}
+html[lang^=zh] .art .role{font-size:14px;letter-spacing:.3em;font-weight:600}
+html[lang^=zh] .spec span{font-size:12px;letter-spacing:.14em;font-weight:600}
+html[lang^=zh] footer span{font-size:11px;letter-spacing:.2em}
+html[lang^=zh].s-ink .art .role{font-size:17px;font-weight:400}
+html[lang^=zh].s-ink .spec span{font-size:14.5px;font-weight:400;letter-spacing:.16em}
+html[lang^=zh].s-ink footer span{font-size:13px}
+html[lang^=zh].s-lupi .spec span{font-size:13px;font-weight:400;letter-spacing:.02em}
+html[lang^=zh].s-lupi .art .tiny{font-size:11px;letter-spacing:.12em}
+html[lang^=zh].s-lupi .art .mc{font-size:10.5px;letter-spacing:.12em}
+</style>
+</head>
+<body>
+<div class="page">
+  <!-- the ground: slow mottling, then fibre-fine grain -->
+  <svg class="tex" width="1080" height="1350">
+    <defs>
+      <filter id="mottle" x="0" y="0" width="100%" height="100%">
+        <feTurbulence id="tMottle" type="fractalNoise" baseFrequency=".005 .008" numOctaves="3" seed="4"/>
+        <feColorMatrix id="mMottle" type="matrix"/>
+      </filter>
+      <filter id="fibre" x="0" y="0" width="100%" height="100%">
+        <feTurbulence type="fractalNoise" baseFrequency=".9" numOctaves="2" seed="11"/>
+        <feColorMatrix id="mFibre" type="matrix"/>
+      </filter>
+    </defs>
+    <rect id="rMottle" width="1080" height="1350" filter="url(#mottle)"/>
+    <rect id="rFibre" width="1080" height="1350" filter="url(#fibre)"/>
+  </svg>
+  <div class="halo"></div>
+  <svg class="frame" id="frame" width="1080" height="1350"></svg>
+
+  <div class="kicker" data-t="where"></div>
+  <h1 id="title"></h1>
+  <div class="lede"><b data-t="lede1"></b><span data-t="lede2"></span></div>
+
+  <svg class="art" id="art" width="1080" height="700" viewBox="0 0 1080 700"></svg>
+
+  <div class="spec">
+    <div><b>5<small>/</small>5</b><span data-t="s1"></span></div>
+    <div><b>1.0<small>/</small>0.0</b><span data-t="s2"></span></div>
+    <div><b>53<small>/</small>60</b><span data-t="s3"></span></div>
+    <div><b>0.11</b><span data-t="s4"></span></div>
+    <div><b>$23.76</b><span data-t="s5"></span></div>
+  </div>
+
+  <footer><b id="who">Lue Fang</b><span data-t="where"></span></footer>
+
+  <!-- the colour: pinholes where the ground shows through -->
+  <svg class="tex" id="over" width="1080" height="1350">
+    <defs>
+      <filter id="pin" x="0" y="0" width="100%" height="100%">
+        <feTurbulence type="fractalNoise" baseFrequency="1.15" numOctaves="2" seed="23"/>
+        <feColorMatrix id="mPin" type="matrix"/>
+      </filter>
+    </defs>
+    <rect id="rPin" width="1080" height="1350" filter="url(#pin)"/>
+  </svg>
+</div>
+
+<script>
+const q = new URLSearchParams(location.search);
+const root = document.documentElement;
+
+/* Each style: inks, grain (r g b opacity for mottle, fibre, pinholes; pinholes multiply on dark grounds and screen
+   on light ones), the shape of the outer marks, and the title as that style would letter it. */
+const PLAIN = '<span class="a">Solve<i>r</i>-in-the-Loop</span><span>Task Factory</span>';
+const STYLES = {
+  cloth: { paper: "#15382C", ink: "#EDE7D9", ink2: "#A9B3A6", ink3: "#84917F", hair: "#2C5244", quiet: "#4F6E60", accent: "#D8B76A",
+           mottle: [.85, .82, .72, .05], fibre: [.93, .90, .82, .09], pin: [.05, .05, .04, .50], blend: "multiply", title: PLAIN },
+  stone: { paper: "#E9E8E3", ink: "#151716", ink2: "#72756E", ink3: "#93968E", hair: "#CDCEC6", quiet: "#B3B5AD", accent: "#1D5C45",
+           mottle: [.34, .27, .17, .07], fibre: [.22, .18, .12, .17], pin: [.94, .91, .86, .42], blend: "screen", title: PLAIN },
+  haze:  { paper: "#6F879D", ink: "#F3F6F8", ink2: "#DCE4EA", ink3: "#B4C4D1", hair: "#8AA0B3", quiet: "#93A8BA", accent: "#17232F",
+           mottle: [.96, .97, .98, .17], fibre: [.10, .14, .19, .10], pin: [.44, .53, .62, .30], blend: "normal", cloud: ".0028 .0042",
+           title: '<span>Solver-in-the-Loop</span><span class="a">Task Factory</span>' },
+  roman: { paper: "#73271E", ink: "#F0E9DC", ink2: "#E2D2BE", ink3: "#C39C8A", hair: "#96493C", quiet: "#A65F50", accent: "#D4AC58",
+           mottle: [.16, .05, .03, .16], fibre: [.98, .90, .80, .08], pin: [.30, .09, .06, .45], blend: "normal",
+           frame: true, title: '<span class="a">SOLVER·IN·THE·LOOP</span><span>TASK FACTORY</span>' },
+  gothic:{ paper: "#100E11", ink: "#E8E0D0", ink2: "#ABA397", ink3: "#7F786E", hair: "#2E2A2E", quiet: "#4D464A", accent: "#AE202D",
+           mottle: [.80, .76, .70, .035], fibre: [.92, .88, .80, .07], pin: [.03, .03, .03, .50], blend: "multiply",
+           mark: "lozenge", ring: true, title: '<span class="a">Solver<u>-</u>in<u>-</u>the<u>-</u>Loop</span><span>Task Factory</span>' },
+  ink:   { paper: "#E9E7E0", ink: "#1A1A19", ink2: "#6B6A66", ink3: "#96958F", hair: "#CECCC5", quiet: "#C2C0B9", accent: "#7D7B76",
+           mottle: [.30, .29, .26, .07], fibre: [.25, .24, .21, .22], pin: [.93, .92, .88, .62], blend: "screen",
+           brush: true, seal: "#B5332A", title: '<span>Solve<i>r</i>-in-the-Loop</span><span class="a">Task Factory</span>' },
+  lupi:  { paper: "#EFEEEA", ink: "#191919", ink2: "#7B7A76", ink3: "#A4A39E", hair: "#D5D4CF", quiet: "#BBBAB5", accent: "#191919",
+           mottle: [0, 0, 0, 0], fibre: [0, 0, 0, 0], pin: [0, 0, 0, 0], blend: "normal", art: "lupi", title: PLAIN },
+};
+const name = q.get("style") in STYLES ? q.get("style") : "cloth";
+const st = STYLES[name];
+root.classList.add("s-" + name);
+for (const k of ["paper", "ink", "ink2", "ink3", "hair", "quiet", "accent"]) root.style.setProperty("--" + k, st[k]);
+const ALPHA = { mottle: "1.5 -.55", fibre: "1.7 -.66", pin: "2.4 -1.12" };
+for (const k of ["mottle", "fibre", "pin"]) {
+  const id = k[0].toUpperCase() + k.slice(1), [r, g, b, o] = st[k];
+  document.getElementById("m" + id).setAttribute("values", `0 0 0 0 ${r}  0 0 0 0 ${g}  0 0 0 0 ${b}  0 0 0 ${ALPHA[k]}`);
+  document.getElementById("r" + id).setAttribute("opacity", o);
+}
+document.getElementById("over").style.mixBlendMode = st.blend;
+if (st.cloud) document.getElementById("tMottle").setAttribute("baseFrequency", st.cloud);
+document.getElementById("title").innerHTML = st.title;
+if (st.frame)      // a painted panel's double rule
+  document.getElementById("frame").innerHTML =
+    `<rect x="34" y="34" width="1012" height="1282" fill="none" stroke="${st.accent}" stroke-width="1.8" opacity=".85"/>`
+  + `<rect x="43" y="43" width="994" height="1264" fill="none" stroke="${st.accent}" stroke-width=".9" opacity=".7"/>`;
+
+const lang = q.get("lang") === "zh" ? "zh" : "en";
+const date = name === "roman" ? "XIV · XI · MMXXVI" : lang === "zh" ? "2026.11.14" : "Nov 14, 2026";
+const T = {
+  en: {
+    writer: ["Writer", "Claude Opus 5.5"], solver: ["Solver", "Claude Haiku 5.5"],
+    gates: "8 gates", deepen: "Too easy → deepen",
+    s1: "valid tasks", s2: "oracle / no-op", s3: "injected bugs caught", s4: "max task overlap", s5: "total model spend",
+    where: "Innodata Hackathon &nbsp;·&nbsp; New York &nbsp;·&nbsp; " + date,
+    lede1: "One route, two loops.", lede2: "Every mark is a recorded result: 60 injected bugs, 8 gates, 5 tasks.",
+    note: ["53 of 60 injected bugs caught", "a hollow mark got past the tests"],
+    route: [["Plan", "6 × 5 matrix"], ["Write", "Claude Opus 5.5"], ["Check", "8 gates"], ["Measure", "Claude Haiku 5.5"], ["Ship", "Harbor task"]],
+    repair: "repair ≤ 3 tries", again: "too easy → deepen ≤ 2 rounds", medal: ["Task 0101", "one round"],
+    strip: ["Loop dial · Mono editorial · seed 1", "pallets/click 8.5.1 → Harbor"],
+  },
+  zh: {
+    writer: ["出题", "Claude Opus 5.5"], solver: ["解题", "Claude Haiku 5.5"],
+    gates: "8 道关卡", deepen: "太简单 → 加深",
+    s1: "题目合格", s2: "oracle / nop", s3: "注入 bug 被抓出", s4: "题目最高重合度", s5: "模型总花费",
+    where: "Innodata Hackathon &nbsp;·&nbsp; 纽约 &nbsp;·&nbsp; " + date,
+    lede1: "一条路线，两个循环。", lede2: "每个标记都是一条真实记录：60 个注入 bug、8 道关卡、5 道题。",
+    note: ["60 个注入 bug 抓出 53 个", "空心：测试漏掉的"],
+    route: [["规划", "6 × 5 变化矩阵"], ["出题", "Claude Opus 5.5"], ["检查", "8 道关卡"], ["测量", "Claude Haiku 5.5"], ["出厂", "Harbor 任务包"]],
+    repair: "返修 ≤ 3 次", again: "太简单 → 加深 ≤ 2 轮", medal: ["0101 号题", "一轮之后"],
+    strip: ["Loop dial · Mono editorial · seed 1", "pallets/click 8.5.1 → Harbor"],
+  },
+};
+const t = T[lang];
+root.lang = lang === "zh" ? "zh-CN" : "en";
+document.querySelectorAll("[data-t]").forEach(el => { el.innerHTML = t[el.dataset.t]; });
+
+const INK = st.ink, ACC = st.accent, PAPER = st.paper, QUIET = st.quiet, GREY = st.ink3;
+const rad = d => d * Math.PI / 180, f = v => +v.toFixed(2);
+const CAUGHT = [10, 12, 11, 11, 9], SPLIT = 3.2, STEP = (360 - 5 * SPLIT) / 60;          // bugs caught, of 12 per task
+const bugAngle = (i, j) => -90 + SPLIT / 2 + i * 72 + (j + .5) * STEP;
+const ALLOWED = ["XX..X", "XX.XX", ".XX.X", ".X.XX", "XXXX.", "X..XX"], PICKED = [4, -1, 2, 1, 3, 0];   // the 6 x 5 plan
+const SOLVED = [1, 3, 3, 3, 3];                                                           // of 3 tries, per shipped task
+
+if (st.seal)       // a seal cut with the loop itself: two arcs, two dots
+  document.getElementById("who").insertAdjacentHTML("beforeend",
+    `<svg viewBox="0 0 30 30"><defs><filter id="chop"><feTurbulence type="fractalNoise" baseFrequency=".5" numOctaves="2" seed="5"/>
+       <feDisplacementMap in="SourceGraphic" scale="1.6" xChannelSelector="R" yChannelSelector="G"/></filter></defs>
+     <g filter="url(#chop)"><rect x="1.5" y="1.5" width="27" height="27" rx="2.4" fill="${st.seal}"/>
+       <path d="M8.2 12.4A7.4 7.4 0 0 1 21.8 12.4M21.8 17.6A7.4 7.4 0 0 1 8.2 17.6" fill="none" stroke="${PAPER}" stroke-width="1.9" stroke-linecap="round"/>
+       <circle cx="7.6" cy="15" r="2.3" fill="${PAPER}"/><circle cx="22.4" cy="15" r="2.3" fill="${PAPER}"/></g></svg>`);
+
+/* The loop: the writer hands a task over the top to the solver (in the accent colour); one that is too easy
+   comes back underneath. */
+function loop(cx, cy, R, rn, sw, head, hw, gapPx, fills) {
+  const P = (deg, r = R) => [f(cx + r * Math.cos(rad(deg))), f(cy + r * Math.sin(rad(deg)))];
+  const gap = (rn + gapPx) / R * 180 / Math.PI, h = head / R * 180 / Math.PI;
+  const arc = (a0, a1, color) => {
+    const s = P(a0), e = P(a1 - h), tip = P(a1), o = P(a1 - h, R + hw), i = P(a1 - h, R - hw);
+    return `<path d="M${s}A${R} ${R} 0 0 1 ${e}" fill="none" stroke="${color}" stroke-width="${sw}" stroke-linecap="round"/>`
+         + `<path d="M${tip}L${o}L${i}Z" fill="${color}" stroke="${color}" stroke-width="${sw * .3}" stroke-linejoin="round"/>`;
+  };
+  return arc(180 + gap, 360 - gap, INK) + arc(gap, 180 - gap, ACC)
+       + `<circle cx="${cx - R}" cy="${cy}" r="${rn}" fill="${fills[0]}"/><circle cx="${cx + R}" cy="${cy}" r="${rn}" fill="${fills[1]}"/>`;
+}
+
+function art() {
+  const cx = 540, cy = 330, R = 206, rn = 62, RD = 292;
+  let s = "", defs = "";
+  if (st.brush)      // edges that wander like a loaded brush, discs that pool like a wash
+    defs = `<filter id="brush" x="-6%" y="-6%" width="112%" height="112%">
+        <feTurbulence type="fractalNoise" baseFrequency=".03" numOctaves="2" seed="7" result="a"/>
+        <feDisplacementMap in="SourceGraphic" in2="a" scale="6" xChannelSelector="R" yChannelSelector="G" result="b"/>
+        <feTurbulence type="fractalNoise" baseFrequency=".7" numOctaves="1" seed="3" result="c"/>
+        <feDisplacementMap in="b" in2="c" scale="2.4" xChannelSelector="R" yChannelSelector="G"/></filter>
+      <radialGradient id="dense" cx=".45" cy=".42" r=".62"><stop offset="0" stop-color="#2E2E2C"/><stop offset=".8" stop-color="#1A1A19"/><stop offset="1" stop-color="#0E0E0E"/></radialGradient>
+      <radialGradient id="wash" cx=".43" cy=".4" r=".66"><stop offset="0" stop-color="#ABA9A3"/><stop offset=".7" stop-color="#8D8B86"/><stop offset="1" stop-color="#5C5B57"/></radialGradient>`;
+
+  // outer ring: the 60 injected bugs, 12 per task; hollow = the tests missed it
+  if (st.ring) s += `<circle cx="${cx}" cy="${cy}" r="${RD + 17}" fill="none" stroke="${INK}" stroke-width="1" opacity=".45"/>`
+                 + `<circle cx="${cx}" cy="${cy}" r="${RD - 17}" fill="none" stroke="${INK}" stroke-width="1" opacity=".45"/>`;
+  CAUGHT.forEach((k, i) => {
+    for (let j = 0; j < 12; j++) {
+      const deg = bugAngle(i, j), a = rad(deg), x = f(cx + RD * Math.cos(a)), y = f(cy + RD * Math.sin(a));
+      if (st.mark === "lozenge") {            // pointed along the radius, as in window tracery
+        const d = j < k ? `M0 -7.4L4.3 0L0 7.4L-4.3 0Z` : `M0 -6.2L3.5 0L0 6.2L-3.5 0Z`;
+        s += `<path d="${d}" transform="translate(${x} ${y}) rotate(${f(deg + 90)})" ` + (j < k ? `fill="${INK}"/>` : `fill="none" stroke="${INK}" stroke-width="1.4"/>`);
+      } else {
+        s += j < k ? `<circle cx="${x}" cy="${y}" r="4.5" fill="${INK}"/>`
+                   : `<circle cx="${x}" cy="${y}" r="3.7" fill="none" stroke="${INK}" stroke-width="1.6"/>`;
+      }
+    }
+  });
+
+  s += loop(cx, cy, R, rn, 5, 22, 10.5, 16, st.brush ? ["url(#dense)", "url(#wash)"] : [INK, ACC]);
+
+  // the eight gates
+  for (let k = 0; k < 8; k++) {
+    const a = rad(270 - 31.5 + k * 9), c = Math.cos(a), w = Math.sin(a);
+    s += `<line x1="${f(cx + (R - 13) * c)}" y1="${f(cy + (R - 13) * w)}" x2="${f(cx + (R + 13) * c)}" y2="${f(cy + (R + 13) * w)}" stroke="${INK}" stroke-width="4.8" stroke-linecap="${st.mark === "lozenge" ? "butt" : "round"}"/>`;
+  }
+
+  // inside the writer: the variation matrix (6 areas x 5 kinds of change); solid = this batch's five tasks
+  const cw = 9.2, g = 3.5, x0 = cx - R - (5 * cw + 4 * g) / 2, y0 = cy - (6 * cw + 5 * g) / 2;
+  ALLOWED.forEach((row, r) => [...row].forEach((ch, c) => {
+    if (ch !== "X") return;
+    s += `<rect x="${f(x0 + c * (cw + g))}" y="${f(y0 + r * (cw + g))}" width="${cw}" height="${cw}" rx="${st.mark === "lozenge" ? 0 : 2}" fill="${PAPER}" opacity="${PICKED[r] === c ? 1 : .26}"/>`;
+  }));
+
+  // inside the solver: its fifteen attempts on the shipped tasks, one row per task; hollow = not solved
+  const pt = 14.5;
+  SOLVED.forEach((k, r) => { for (let c = 0; c < 3; c++) {
+    const x = f(cx + R + (c - 1) * pt), y = f(cy + (r - 2) * pt);
+    s += c < k ? `<circle cx="${x}" cy="${y}" r="4.4" fill="${PAPER}"/>`
+               : `<circle cx="${x}" cy="${y}" r="3.5" fill="none" stroke="${PAPER}" stroke-width="1.8"/>`;
+  } });
+
+  // centre: one task before and after a round in the loop (solved 3 of 3, then 1 of 3)
+  const dy = cy - 9, after = st.brush ? INK : ACC;
+  [-110, -78, -46].forEach(d => { s += `<circle cx="${cx + d}" cy="${dy}" r="12.5" fill="${QUIET}"/>`; });
+  s += `<path d="M${cx - 16} ${dy}h31M${cx + 5.5} ${dy - 8}l9.5 8-9.5 8" fill="none" stroke="${GREY}" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>`;
+  s += `<circle cx="${cx + 46}" cy="${dy}" r="12.5" fill="${after}"/>`;
+  [78, 110].forEach(d => { s += `<circle cx="${cx + d}" cy="${dy}" r="11" fill="none" stroke="${after}" stroke-width="3"/>`; });
+  if (st.brush) s = `<g filter="url(#brush)">${s}</g>`;
+  s += `<text class="num" text-anchor="middle" x="${cx - 78}" y="${dy + 46}">3/3</text><text class="num b" text-anchor="middle" x="${cx + 78}" y="${dy + 46}">1/3</text>`;
+
+  // the few words
+  s += `<text class="role" text-anchor="middle" x="${cx}" y="${cy - R + 62}">${t.gates}</text>`;
+  s += `<text class="role b" text-anchor="middle" x="${cx}" y="${cy + R - 50}">${t.deepen}</text>`;
+  const pad = st.ring ? 38 : 22, lx = cx - RD - pad, rx = cx + RD + pad;
+  s += `<text class="role" text-anchor="end" x="${lx}" y="${cy - 12}">${t.writer[0]}</text><text class="name" text-anchor="end" x="${lx}" y="${cy + 18}">${t.writer[1]}</text>`;
+  s += `<text class="role b" x="${rx}" y="${cy - 12}">${t.solver[0]}</text><text class="name" x="${rx}" y="${cy + 18}">${t.solver[1]}</text>`;
+  return `<defs>${defs}</defs>` + s;
+}
+
+/* The same facts drawn the Lupi way: a hairline per record, a dot at its end, notes on leader lines.
+   One route runs left to right (plan, write, check, measure, ship); two loops bring a task back to the writer:
+   a short one from the gates (repair) and the long one from the solver (deepen). What the long loop did to one
+   task sits in the middle, the only heavy shape on the page. */
+function artLupi() {
+  const cx = 540, cy = 350, R = 178, B = R + 36, L = 34, hl = (o = .5, w = 1) => `stroke="${INK}" stroke-width="${w}" opacity="${o}"`;
+  const P = (deg, r) => [f(cx + r * Math.cos(rad(deg))), f(cy + r * Math.sin(rad(deg)))];
+  const chev = (x, y, dir, size = 8, w = 1.7) => {            // an open arrowhead at (x, y), pointing along dir
+    const u = d => [f(x + size * Math.cos(rad(d))), f(y + size * Math.sin(rad(d)))];
+    return `<path d="M${u(dir + 150)}L${x} ${y}L${u(dir - 150)}" fill="none" stroke="${INK}" stroke-width="${w}" stroke-linecap="round" stroke-linejoin="round"/>`;
+  };
+  const step = (i, x, y, anchor) => `<text class="ab" text-anchor="${anchor}" x="${x}" y="${y}"><tspan class="ix">${i + 1}&#8194;</tspan>${t.route[i][0]}</text>`
+                                  + `<text class="an" text-anchor="${anchor}" x="${x}" y="${y + 17}">${t.route[i][1]}</text>`;
+  let s = `<circle cx="${cx}" cy="${cy}" r="${B}" fill="none" ${hl(.2, .8)}/>`;
+
+  // one stem per injected bug; a hollow end is a bug the tests missed
+  CAUGHT.forEach((k, i) => { for (let j = 0; j < 12; j++) {
+    const deg = bugAngle(i, j), a = P(deg, B), b = P(deg, B + L);
+    s += `<line x1="${a[0]}" y1="${a[1]}" x2="${b[0]}" y2="${b[1]}" ${hl(.5, .9)}/>`;
+    s += j < k ? `<circle cx="${b[0]}" cy="${b[1]}" r="3.5" fill="${INK}"/>`
+               : `<circle cx="${b[0]}" cy="${b[1]}" r="3.3" fill="${PAPER}" stroke="${INK}" stroke-width="1.1"/>`;
+  } });
+
+  // the way out: writer, through the eight gates, over the top, to the solver
+  const gW = 21 / R * 180 / Math.PI, gS = 22 / R * 180 / Math.PI, out = P(360 - gS, R);
+  s += `<path d="M${P(180 + gW, R)}A${R} ${R} 0 0 1 ${out}" fill="none" stroke="${INK}" stroke-width="2.1"/>` + chev(out[0], out[1], 360 - gS + 90);
+  for (let k = 0; k < 8; k++) {
+    const d = 203 + k * 5.6, a = P(d, R - 10), b = P(d, R + 10);
+    s += `<line x1="${a[0]}" y1="${a[1]}" x2="${b[0]}" y2="${b[1]}" stroke="${INK}" stroke-width="1.7"/>`;
+  }
+
+  // loop one: a failed check goes back to the writer (the short way, inside)
+  const fork = P(250, R), back = [f(cx - R + 12), f(cy - 9)];
+  s += `<path d="M${fork}A${2 * R} ${2 * R} 0 0 1 ${back}" fill="none" stroke="${INK}" stroke-width="1.5" stroke-dasharray="1.5 5" stroke-linecap="round"/>` + chev(back[0], back[1], 143, 7, 1.5);
+  s += `<text class="tiny" text-anchor="middle" transform="translate(${cx - 95} ${cy - 66}) rotate(-55)">${t.repair}</text>`;
+
+  // loop two: a task the solver finds too easy goes back to the writer (the long way, underneath)
+  const home = P(180 - gW, R);
+  s += `<path d="M${P(gS, R)}A${R} ${R} 0 0 1 ${home}" fill="none" stroke="${INK}" stroke-width="1.5" stroke-dasharray="1.5 5.5" stroke-linecap="round"/>` + chev(home[0], home[1], 180 - gW + 90, 7, 1.5);
+  s += `<text class="tiny" text-anchor="middle" x="${cx}" y="${cy + R - 58}">${t.again}</text>`;
+
+  // writer and solver
+  s += `<circle cx="${cx - R}" cy="${cy}" r="12" fill="${INK}"/>`;
+  s += `<circle cx="${cx + R}" cy="${cy}" r="12.5" fill="${PAPER}" stroke="${INK}" stroke-width="2.2"/><circle cx="${cx + R}" cy="${cy}" r="4.3" fill="${INK}"/>`;
+
+  // the route in and out, along the axis
+  const ext = B + L + 4, lx = cx - ext - 22, rx = cx + ext + 22;
+  s += `<line x1="${lx}" y1="${cy}" x2="${cx - R - 17}" y2="${cy}" ${hl(.8, 1.2)}/>` + chev(cx - R - 17, cy, 0, 6, 1.3);
+  s += `<line x1="${cx + R + 18}" y1="${cy}" x2="${rx}" y2="${cy}" ${hl(.8, 1.2)}/>` + chev(rx, cy, 0, 6, 1.3);
+  s += `<rect x="${rx + 11}" y="${cy - 5.5}" width="11" height="11" fill="${INK}"/>`;
+
+  // 1 plan: the 6 x 5 matrix the writer draws from (solid = this batch)   5 ship: the finished task
+  const mp = 8.6, mx = lx - 10 - 4 * mp, my = cy - 2.5 * mp;
+  ALLOWED.forEach((row, r) => [...row].forEach((ch, c) => {
+    if (ch !== "X") return;
+    s += PICKED[r] === c ? `<circle cx="${f(mx + c * mp)}" cy="${f(my + r * mp)}" r="2.6" fill="${INK}"/>`
+                         : `<circle cx="${f(mx + c * mp)}" cy="${f(my + r * mp)}" r="1.9" fill="none" stroke="${INK}" stroke-width=".8" opacity=".55"/>`;
+  }));
+  s += step(0, f(mx - 15), cy - 3, "end") + step(4, rx + 34, cy - 3, "start");
+  // 2 write and 4 measure, under the axis; 3 check, on a leader from the gates
+  s += step(1, cx - R + 20, cy + 27, "start") + step(3, cx + R - 20, cy + 27, "end");
+  const gate = P(219, R + 14), tx = lx, ty = cy - 152;
+  s += `<path d="M${tx + 9} ${ty - 4}Q${f(gate[0] - 44)} ${ty - 8} ${gate[0]} ${gate[1]}" fill="none" ${hl(.55, .9)}/>` + step(2, tx, ty, "end");
+
+  // the centre: what one round of the long loop did to one task
+  s += `<circle cx="${cx}" cy="${cy}" r="70" fill="${INK}"/>`;
+  s += `<text class="mc" text-anchor="middle" x="${cx}" y="${cy - 32}">${t.medal[0]}</text><text class="mc" text-anchor="middle" x="${cx}" y="${cy + 43}">${t.medal[1]}</text>`;
+  s += `<text class="m1" text-anchor="end" x="${cx - 19}" y="${cy + 10}">3/3</text><text class="m2" x="${cx + 3}" y="${cy + 12}">1/3</text>`;
+  s += `<path d="M${cx - 14} ${cy + 3}h10M${cx - 7.5} ${cy - 0.5}l3.5 3.5-3.5 3.5" fill="none" stroke="${PAPER}" stroke-width="1.4" opacity=".6" stroke-linecap="round" stroke-linejoin="round"/>`;
+
+  // a note on a leader line, and the strip under a Lupi chart
+  const tip = P(bugAngle(4, 10), B + L + 6), nx = cx - 150, ny = cy - B - L - 44;
+  s += `<path d="M${nx + 8} ${ny - 4}Q${f((nx + tip[0]) / 2 + 30)} ${ny - 10} ${tip[0]} ${tip[1]}" fill="none" ${hl(.55, .9)}/>`;
+  s += `<text class="ab" text-anchor="end" x="${nx}" y="${ny}">${t.note[0]}</text><text class="an" text-anchor="end" x="${nx}" y="${ny + 18}">${t.note[1]}</text>`;
+  s += `<text class="tiny" x="72" y="684">${t.strip[0]}</text><text class="tiny" text-anchor="end" x="1008" y="684">${t.strip[1]}</text>`;
+  return s;
+}
+document.getElementById("art").innerHTML = st.art === "lupi" ? artLupi() : art();
+</script>
+</body>
+</html>
